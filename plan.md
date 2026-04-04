@@ -4,35 +4,36 @@
 
 ## Overview
 <!-- Describe the project purpose, scope, and key objectives -->
-Command line themed video game project
+Command-line themed web game built for the browser and hosted on a website domain.
 
-hosted on a website domain
+### Core Concept
+- A small character moves from right to left through changing environments.
+- The player drags an umbrella to protect the character.
+- Clouds at the top of the screen create different weather conditions.
+- snow, rain, hail
 
-clouds at the top produce different weather conditions.
+### Gameplay Loop
+- Keep the character safe for as long as possible. Gain points the longer you can keep the character safe
+- The landscape scrolls by to create movement and tension.
+- New obstacles, speeds, and environments are introduced over time.
 
-protect a small guy with an umbrella.
+### Progression Ideas
+- Add a shark level.
+- Increase difficulty as the run continues.
+- Support multiple characters to protect later on.
 
-drag the umbrella to protect a small guy
-
-auto scroller
-
-we can make the land scape go by
-
-shark level
-
-introduce more elements for as long as it lives
-
-
-guy is moving aroudn at different speeds around differnet obstacles/speeds/environemnts
-
-could implement protecting mutlicle guys
+### Presentation Goals
+- Make it look like a command line themed game with a web-friendly layout.
+- Keep the experience simple enough to host and run entirely in the browser.
+- Game will be started with a basic command line prompt
+- Rain will fall off umbrella.
 
 ---
 
 ## Tech Stack
 <!-- List all technologies, frameworks, libraries, and tools being used -->
 
-Keep it as basic as possible:
+Recommended stack:
 
 - **Frontend**
   - HTML
@@ -41,6 +42,7 @@ Keep it as basic as possible:
   - Vite
   - `@chenglou/pretext`
   - Canvas or plain DOM for rendering
+  - Optional: Web Audio API for sound effects
 
 - **Backend**
   - None
@@ -48,7 +50,7 @@ Keep it as basic as possible:
 - **Database**
   - None
 
-This keeps the project browser-only and easy to host.
+This is the simplest stack I’d recommend for a browser-first game: fast to build, easy to host, and no server required.
 
 
 ---
@@ -119,19 +121,5 @@ project-root/
 ---
 
 ## Additional Sections (Optional)
-
-### API Endpoints
-<!-- Document all API endpoints -->
-
-
-### Database Schema
-<!-- Document database structure -->
-
-### Security Considerations
-<!-- List security measures and compliance requirements -->
-
-### Performance Targets
-<!-- Define performance metrics and benchmarks -->
-
 
 ---
