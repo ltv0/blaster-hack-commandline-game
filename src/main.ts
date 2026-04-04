@@ -12,19 +12,13 @@ import {
   type AudioEvent,
   type Cloud,
 } from './game.ts';
-import {
-  clearCanvas,
-  drawText,
-  drawTextShadow,
-  drawHRule,
-  measureText,
-  drawGlyphBox,
-} from './pretext-renderer.ts';
+import { PretextRenderer } from './pretext-renderer.ts';
 
 // ─── Canvas ───────────────────────────────────────────────────────────────────
 
 const canvas = document.getElementById('game-canvas') as HTMLCanvasElement;
 const ctx = canvas.getContext('2d')!;
+const renderer = new PretextRenderer();
 
 let dpr = window.devicePixelRatio || 1;
 let W = 0;
@@ -53,8 +47,10 @@ function resize(): void {
 
 // ─── Font helpers ─────────────────────────────────────────────────────────────
 
+const FONT_FAMILY = '"IBM Plex Mono", monospace';
+
 function fnt(size: number, weight: 400 | 700 = 400): string {
-  return `${weight} ${size}px "IBM Plex Mono", monospace`;
+  return `${weight} ${size}px ${FONT_FAMILY}`;
 }
 function sz(base: number, minV: number, maxV: number): number {
   return Math.max(minV, Math.min(maxV, base));
@@ -81,7 +77,7 @@ function playTone(
   type: OscillatorType,
   gainVal: number,
   duration: number,
-  startTime?: number
+  startTime?: number,
 ): void {
   const a = getAudio();
   if (!a) return;
@@ -155,7 +151,6 @@ function handleAudioEvents(events: AudioEvent[]): void {
 }
 
 // ─── Static star field ────────────────────────────────────────────────────────
-// Pre-generate star positions once; reuse each frame.
 
 interface Star { x: number; y: number; size: number; speed: number }
 let stars: Star[] = [];
@@ -201,7 +196,8 @@ function loop(ts: number): void {
 // ─── Top-level draw dispatcher ────────────────────────────────────────────────
 
 function draw(s: GameState): void {
-  clearCanvas(ctx, COLORS.bg, W, H);
+  ctx.fillStyle = COLORS.bg;
+  ctx.fillRect(0, 0, W, H);
   if (s.phase === 'boot') {
     drawBoot(s);
   } else {
@@ -213,52 +209,54 @@ function draw(s: GameState): void {
 // ─── Boot screen ─────────────────────────────────────────────────────────────
 
 function drawBoot(s: GameState): void {
-  const cx   = W / 2;
-  const lh   = sz(H / 24, 20, 28);
-  const size = sz(W / 60, 11, 15);
+  const cx     = W / 2;
+  const lh     = sz(H / 24, 20, 28);
+  const size   = sz(W / 60, 11, 15);
   const startY = H * 0.18;
   const indent = cx - sz(W * 0.28, 120, 230);
 
-  // Scanlines
   drawScanlines(0.04);
 
   // Logo
   const logoFont = fnt(size + 5, 700);
-  drawTextShadow(ctx, '[ BLASTER HACK ]', cx, startY - lh * 2.2, logoFont,
-    COLORS.green, COLORS.green, 16, 'center', 'top');
+  renderer.drawText(ctx, '[ BLASTER HACK ]', logoFont, lh, cx, startY - lh * 2.2, {
+    color: COLORS.green,
+    shadowColor: COLORS.green,
+    shadowBlur: 16,
+    align: 'center',
+  });
 
   // Rule under logo
-  drawHRule(ctx, indent, startY - lh * 0.7, sz(W * 0.56, 240, 460), fnt(size - 1), COLORS.dimGreen, '\u2500', 0.6);
+  renderer.drawHRule(ctx, '\u2500', fnt(size - 1), lh, indent, startY - lh * 0.7,
+    sz(W * 0.56, 240, 460), { color: COLORS.dimGreen, alpha: 0.6 });
 
   // Boot lines
   for (let i = 0; i < s.bootLines.length; i++) {
-    const line    = s.bootLines[i];
-    const isLast  = i === s.bootLines.length - 1;
-    const isWarn  = line.startsWith('\u26a0');
-    const isPrompt = line.startsWith('>');
-    const color   = isPrompt ? COLORS.amber
-                  : isWarn   ? COLORS.red
-                  : isLast   ? COLORS.white
-                  :             COLORS.dimGreen;
+    const line      = s.bootLines[i];
+    const isLast    = i === s.bootLines.length - 1;
+    const isWarn    = line.startsWith('\u26a0');
+    const isPrompt  = line.startsWith('>');
+    const color     = isPrompt ? COLORS.amber
+                    : isWarn   ? COLORS.red
+                    : isLast   ? COLORS.white
+                    :             COLORS.dimGreen;
     const f = (isPrompt || isWarn) ? fnt(size, 700) : fnt(size);
 
     if (isPrompt && s.bootDone) {
-      // Strip the trailing placeholder underscore from BOOT_LINES
       const display = line.replace(/ _$/, '');
-      drawText(ctx, display, indent, startY + i * lh, f, color, 'left', 'top');
-      // Blinking cursor
+      renderer.drawText(ctx, display, f, lh, indent, startY + i * lh, { color });
       if (s.promptBlink) {
-        const tw = measureText(ctx, display + ' ', f).width;
-        drawText(ctx, '_', indent + tw, startY + i * lh, f, COLORS.amber, 'left', 'top');
+        const tw = renderer.measureWidth(display + ' ', f);
+        renderer.drawText(ctx, '_', f, lh, indent + tw, startY + i * lh, { color: COLORS.amber });
       }
     } else {
-      drawText(ctx, line, indent, startY + i * lh, f, color, 'left', 'top');
+      renderer.drawText(ctx, line, f, lh, indent, startY + i * lh, { color });
     }
   }
 
   // Footer
-  drawText(ctx, 'BLASTER HACK COMMANDLINE GAME  //  v1.0', cx, H - 18,
-    fnt(size - 3), COLORS.dim, 'center', 'top', 0.4);
+  renderer.drawText(ctx, 'BLASTER HACK COMMANDLINE GAME  //  v1.0', fnt(size - 3), lh,
+    cx, H - 18, { color: COLORS.dim, align: 'center', alpha: 0.4 });
 }
 
 // ─── Game world ───────────────────────────────────────────────────────────────
@@ -286,7 +284,6 @@ function drawGame(s: GameState): void {
     ctx.restore();
   }
 
-  // Scanlines (subtle always-on)
   drawScanlines(0.035);
 }
 
@@ -302,10 +299,9 @@ function drawStars(s: GameState): void {
   ctx.restore();
 }
 
-// Clouds — three visually distinct ASCII shapes per weather type
+// Clouds
 function getCloudLines(c: Cloud): string[] {
   if (c.type === 'rain') {
-    // Rounded, droopy, with dangling rain streaks
     return [
       "   .-~~~~-.   .-.",
       "  / R A I N ~~' \\",
@@ -314,7 +310,6 @@ function getCloudLines(c: Cloud): string[] {
       "  | ' | ' | ' |",
     ];
   } else if (c.type === 'snow') {
-    // Wide, fluffy, layered bumps
     return [
       " .-. .~~~. .-. .-.",
       "(   ) SNOW (   )  )",
@@ -323,7 +318,6 @@ function getCloudLines(c: Cloud): string[] {
       "  * . * . * . *",
     ];
   } else {
-    // Angular, jagged, threatening
     return [
       " /\\/\\/\\  HAIL  /\\/\\",
       "|  ##  ########  |",
@@ -344,16 +338,15 @@ function drawClouds(s: GameState): void {
     const lines = getCloudLines(cloud);
 
     let maxW = 0;
-    for (const l of lines) maxW = Math.max(maxW, measureText(ctx, l, f).width);
+    for (const l of lines) maxW = Math.max(maxW, renderer.measureWidth(l, f));
     cloud.artW = maxW;
 
     const startX = cloud.x - maxW / 2;
     const startY = Math.max(hudH + 4, cloud.y);
 
-    const flash = cloud.flashTimer > 0;
-    const flashStrength = cloud.flashTimer / 0.2; // 0–1
+    const flash         = cloud.flashTimer > 0;
+    const flashStrength = cloud.flashTimer / 0.2;
 
-    // Per-type distinct color palettes
     let bodyColor: string, accentColor: string, rimColor: string;
     if (cloud.type === 'rain') {
       bodyColor   = flash ? '#3a6a9a' : '#1e3a52';
@@ -373,39 +366,44 @@ function drawClouds(s: GameState): void {
     const glowBlur  = flash ? 18 : 6;
     const bodyAlpha = 0.85 + flashStrength * 0.15;
 
-    // Body lines (all but the drip row)
     for (let i = 0; i < lines.length - 1; i++) {
-      drawTextShadow(
-        ctx, lines[i], startX, startY + i * lineH,
-        f, bodyColor, glowColor, glowBlur,
-        'left', 'top', bodyAlpha,
-      );
+      const block = renderer.getBlock(lines[i], f, lineH);
+      renderer.drawBlock(ctx, block, startX, startY + i * lineH, {
+        color: bodyColor,
+        shadowColor: glowColor,
+        shadowBlur: glowBlur,
+        alpha: bodyAlpha,
+      });
     }
 
-    // Drip / particle row — accent color, pulses with sine wave
     const dripLine  = lines[lines.length - 1];
     const dripY     = startY + (lines.length - 1) * lineH;
     const dripPulse = flash
       ? 1.0
       : 0.55 + Math.sin(s.elapsed * 2.5 + cloud.id * 1.7) * 0.2;
-    drawTextShadow(
-      ctx, dripLine, startX, dripY,
-      f, accentColor, accentColor, flash ? 14 : 4,
-      'left', 'top', Math.max(0.25, dripPulse),
-    );
+    const dripBlock = renderer.getBlock(dripLine, f, lineH);
+    renderer.drawBlock(ctx, dripBlock, startX, dripY, {
+      color: accentColor,
+      shadowColor: accentColor,
+      shadowBlur: flash ? 14 : 4,
+      alpha: Math.max(0.25, dripPulse),
+    });
 
-    // When actively flashing, draw a short burst of drops below the cloud
     if (flash) {
-      const dropF   = fnt(size - 1);
-      const dropY   = dripY + lineH;
+      const dropF     = fnt(size - 1);
+      const dropY     = dripY + lineH;
       const dropGlyph = cloud.type === 'rain' ? '|'
                       : cloud.type === 'snow' ? '*'
                       :                         'o';
       const drops = 3;
       for (let d = 0; d < drops; d++) {
-        const dx = startX + (maxW / (drops + 1)) * (d + 1);
-        drawText(ctx, dropGlyph, dx, dropY, dropF, accentColor,
-          'center', 'top', flashStrength * 0.9);
+        const dx    = startX + (maxW / (drops + 1)) * (d + 1);
+        const block = renderer.getBlock(dropGlyph, dropF, lineH);
+        renderer.drawBlock(ctx, block, dx, dropY, {
+          color: accentColor,
+          align: 'center',
+          alpha: flashStrength * 0.9,
+        });
       }
     }
   }
@@ -422,14 +420,9 @@ function drawGround(s: GameState): void {
   const f       = fnt(size);
   const lineH   = Math.ceil(size * 1.35);
 
-  // Solid background fill
   ctx.fillStyle = COLORS.ground;
   ctx.fillRect(0, groundY, W, H - groundY);
 
-  // ASCII ground fill — multiple rows, each with a different scrolling pattern.
-  // Row 0 (surface): dense block chars
-  // Row 1: mid-density
-  // Row 2+: sparse dots — gives a sense of depth/soil layering
   const rows = [
     { pattern: '\u2593\u2592\u2591\u2593\u2592\u2591\u2593\u2592', color: COLORS.groundLine, alpha: 0.75 },
     { pattern: '\u2592\u2591\xb7\u2592\u2591\u2592\xb7\u2591',    color: COLORS.groundText,  alpha: 0.55 },
@@ -437,35 +430,36 @@ function drawGround(s: GameState): void {
     { pattern: '\xb7  \xb7   \xb7 ',                               color: COLORS.groundText,  alpha: 0.18 },
   ];
 
-  const charW = measureText(ctx, '\u2593', f).width;
+  const charW = renderer.measureWidth('\u2593', f);
 
   for (let row = 0; row < rows.length; row++) {
     const { pattern, color, alpha } = rows[row];
     const rowY = groundY + row * lineH + 2;
     if (rowY > H) break;
 
-    // Alternate scroll direction per row for a natural texture feel
-    const scroll = row % 2 === 0 ? s.groundOffset : -s.groundOffset;
-    const totalW = pattern.length * charW;
+    const scroll  = row % 2 === 0 ? s.groundOffset : -s.groundOffset;
+    const totalW  = pattern.length * charW;
     let x = -((scroll % totalW) + totalW) % totalW;
 
     while (x < W + totalW) {
-      drawText(ctx, pattern, x, rowY, f, color, 'left', 'top', alpha);
+      const block = renderer.getBlock(pattern, f, lineH);
+      renderer.drawBlock(ctx, block, x, rowY, { color, alpha });
       x += totalW;
     }
   }
 
-  // Top-of-ground separator — tight row of box-drawing dashes via pretext
-  const dashF = fnt(size - 1);
-  const dashW = measureText(ctx, '\u2500', dashF).width;
+  // Top separator dash line
+  const dashF   = fnt(size - 1);
+  const dashW   = renderer.measureWidth('\u2500', dashF);
+  const dashBlock = renderer.getBlock('\u2500', dashF, lineH);
   let dx = 0;
   while (dx < W) {
-    drawText(ctx, '\u2500', dx, groundY, dashF, COLORS.dimGreen, 'left', 'top', 0.8);
+    renderer.drawBlock(ctx, dashBlock, dx, groundY, { color: COLORS.dimGreen, alpha: 0.8 });
     dx += dashW;
   }
 }
 
-// Wind indicator (subtle directional text on bottom-left)
+// Wind indicator
 function drawWindIndicator(s: GameState): void {
   if (Math.abs(s.windX) < 5) return;
   const dir   = s.windX > 0 ? '>>>' : '<<<';
@@ -473,11 +467,11 @@ function drawWindIndicator(s: GameState): void {
   const size  = sz(W / 90, 8, 11);
   const alpha = Math.min(0.6, Math.abs(s.windX) / 80);
   const groundY = travelerGroundY(s);
-  drawText(ctx, `WIND ${dir} ${speed}`, 12, groundY + 6, fnt(size), COLORS.cyan, 'left', 'top', alpha);
+  renderer.drawText(ctx, `WIND ${dir} ${speed}`, fnt(size), size * 1.3,
+    12, groundY + 6, { color: COLORS.cyan, alpha });
 }
 
 // Traveler
-// Walking frames: head cycles through expressions, legs cycle based on speed
 const TRAVELER_HEADS = ['(^)', '(o)', '(^)', '(-)'];
 const LEGS_IDLE  = ['/ \\', '/ \\'];
 const LEGS_WALK  = ['/ \\', ' |/ ', '/ \\', ' \\| '];
@@ -488,12 +482,11 @@ let tTimer = 0;
 let tLegTimer = 0;
 
 function drawTraveler(s: GameState): void {
-  const speed = Math.abs(s.travelerVX);
-  const maxSpeed = s.travelerMaxSpeed || 220;
-  const speedFrac = speed / maxSpeed; // 0..1
-  const airborne = s.isJumping;
+  const speed     = Math.abs(s.travelerVX);
+  const maxSpeed  = s.travelerMaxSpeed || 220;
+  const speedFrac = speed / maxSpeed;
+  const airborne  = s.isJumping;
 
-  // Head animation — speeds up with movement
   const headInterval = speedFrac > 0.6 ? 0.10 : speedFrac > 0.2 ? 0.15 : 0.22;
   tTimer += 0.016;
   if (tTimer > headInterval) {
@@ -501,7 +494,6 @@ function drawTraveler(s: GameState): void {
     tFrame = (tFrame + 1) % TRAVELER_HEADS.length;
   }
 
-  // Leg animation — freeze mid-tuck while airborne
   if (!airborne) {
     const legInterval = speedFrac > 0.6 ? 0.07 : speedFrac > 0.15 ? 0.12 : 0.3;
     tLegTimer += 0.016;
@@ -512,59 +504,71 @@ function drawTraveler(s: GameState): void {
     }
   }
 
-  const legFrames = speedFrac > 0.6 ? LEGS_RUN : speedFrac > 0.15 ? LEGS_WALK : LEGS_IDLE;
-  const groundLegStr = legFrames[tLegFrame % legFrames.length];
-
-  // Jump pose: tucked legs going up, spread coming down
-  const risingStr  = '\\o/'; // arms out on the way up
-  const fallingStr = '/o\\'; // arms in on the way down
-  const armsJump   = s.travelerVY < 0 ? risingStr : fallingStr;
-  const legsJump   = s.travelerVY < 0 ? ' ^^' : ' vv';
-
-  // Normal arms direction
-  const moving = s.travelerVX;
-  const armsStr = moving < -10 ? '<|>' : moving > 10 ? '>|<' : '/|\\';
+  const legFrames     = speedFrac > 0.6 ? LEGS_RUN : speedFrac > 0.15 ? LEGS_WALK : LEGS_IDLE;
+  const groundLegStr  = legFrames[tLegFrame % legFrames.length];
+  const risingStr     = '\\o/';
+  const fallingStr    = '/o\\';
+  const armsJump      = s.travelerVY < 0 ? risingStr : fallingStr;
+  const legsJump      = s.travelerVY < 0 ? ' ^^' : ' vv';
+  const moving        = s.travelerVX;
+  const armsStr       = moving < -10 ? '<|>' : moving > 10 ? '>|<' : '/|\\';
 
   const size = sz(W / 40, 14, 22);
   const f    = fnt(size, 700);
+  const lh   = size + 2;
 
-  // Blink on hit invincibility
   const visible = s.hitCooldown > 0 ? (Math.floor(s.hitCooldown * 9) % 2 === 0) : true;
   if (!visible) return;
 
-  const glow = s.hitCooldown > 0 ? COLORS.brightRed : airborne ? COLORS.brightAmber : COLORS.green;
-
-  // Speed-based x wobble when running fast (dampened in air)
+  const glow   = s.hitCooldown > 0 ? COLORS.brightRed : airborne ? COLORS.brightAmber : COLORS.green;
   const wobble = !airborne && speedFrac > 0.7 ? Math.sin(Date.now() / 55) * 1.5 : 0;
-  const tx = s.travelerX + wobble;
+  const tx     = s.travelerX + wobble;
 
-  // Ground shadow while airborne — ASCII glyph that shrinks and fades with height
   if (airborne && s.travelerBaseY) {
-    const rise = s.travelerBaseY - s.travelerY;
-    const maxRise = s.H * 0.20;
-    const t = Math.max(0, 1 - rise / maxRise);           // 1 at ground, 0 at peak
+    const rise       = s.travelerBaseY - s.travelerY;
+    const maxRise    = s.H * 0.20;
+    const t          = Math.max(0, 1 - rise / maxRise);
     const shadowAlpha = t * 0.55;
-    // Scale font size down as traveler rises — wide at ground, narrow at peak
     const shadowSize = Math.max(6, size * (0.5 + t * 0.8));
-    const shadowF = fnt(shadowSize);
-    // Glyph gets narrower with altitude: full shadow → thin shadow
+    const shadowF    = fnt(shadowSize);
     const shadowGlyph = t > 0.7 ? '(_____)' : t > 0.4 ? '(___)' : t > 0.15 ? '(_)' : '.';
-    drawText(ctx, shadowGlyph, tx, s.travelerBaseY + size * 2.6,
-      shadowF, COLORS.dim, 'center', 'top', shadowAlpha);
+    const sBlock = renderer.getBlock(shadowGlyph, shadowF, shadowSize * 1.3);
+    renderer.drawBlock(ctx, sBlock, tx, s.travelerBaseY + size * 2.6, {
+      color: COLORS.dim,
+      align: 'center',
+      alpha: shadowAlpha,
+    });
   }
 
-  const headStr = airborne ? '(O)' : TRAVELER_HEADS[tFrame]; // wide eyes mid-air
-  drawTextShadow(ctx, headStr, tx, s.travelerY,
-    f, COLORS.traveler, glow, airborne ? 12 : 8, 'center', 'top');
-  drawText(ctx, airborne ? armsJump : armsStr, tx, s.travelerY + size + 2,      f, COLORS.traveler, 'center', 'top');
-  drawText(ctx, airborne ? legsJump : groundLegStr, tx, s.travelerY + size * 2 + 2, f, COLORS.traveler, 'center', 'top');
+  const headStr   = airborne ? '(O)' : TRAVELER_HEADS[tFrame];
+  const headBlock = renderer.getBlock(headStr, f, lh);
+  renderer.drawBlock(ctx, headBlock, tx, s.travelerY, {
+    color: COLORS.traveler,
+    shadowColor: glow,
+    shadowBlur: airborne ? 12 : 8,
+    align: 'center',
+  });
 
-  // Speed trail — ghost glyphs when sprinting (ground only)
+  const armsBlock = renderer.getBlock(airborne ? armsJump : armsStr, f, lh);
+  renderer.drawBlock(ctx, armsBlock, tx, s.travelerY + size + 2, {
+    color: COLORS.traveler,
+    align: 'center',
+  });
+
+  const legsBlock = renderer.getBlock(airborne ? legsJump : groundLegStr, f, lh);
+  renderer.drawBlock(ctx, legsBlock, tx, s.travelerY + size * 2 + 2, {
+    color: COLORS.traveler,
+    align: 'center',
+  });
+
   if (!airborne && speedFrac > 0.65) {
-    const trailAlpha = (speedFrac - 0.65) / 0.35 * 0.35;
+    const trailAlpha  = (speedFrac - 0.65) / 0.35 * 0.35;
     const trailOffset = -s.travelerVX * 0.045;
-    drawText(ctx, headStr, tx + trailOffset, s.travelerY,
-      f, COLORS.traveler, 'center', 'top', trailAlpha);
+    renderer.drawBlock(ctx, headBlock, tx + trailOffset, s.travelerY, {
+      color: COLORS.traveler,
+      align: 'center',
+      alpha: trailAlpha,
+    });
   }
 }
 
@@ -573,15 +577,15 @@ function drawHazards(s: GameState): void {
   const groundY = travelerGroundY(s);
   for (const h of s.hazards) {
     if (h.y > groundY) continue;
-    const base = h.type === 'hail' ? sz(W / 55, 12, 17) : sz(W / 65, 10, 14);
-    const size = Math.round(base * h.size);
-    const f    = fnt(size);
+    const base  = h.type === 'hail' ? sz(W / 55, 12, 17) : sz(W / 65, 10, 14);
+    const size  = Math.round(base * h.size);
+    const f     = fnt(size);
     const color = h.type === 'rain' ? COLORS.rain
                 : h.type === 'snow' ? COLORS.snow
                 :                     COLORS.hail;
-    // Fade in from top
     const alpha = Math.min(1, (h.y + 30) / 30);
-    drawText(ctx, h.glyph, h.x, h.y, f, color, 'center', 'middle', alpha);
+    const block = renderer.getBlock(h.glyph, f, size * 1.3);
+    renderer.drawBlock(ctx, block, h.x, h.y, { color, align: 'center', verticalAlign: 'middle', alpha });
   }
 }
 
@@ -590,15 +594,21 @@ function drawParticles(s: GameState): void {
   const size = sz(W / 70, 8, 12);
   const f    = fnt(size);
   for (const p of s.particles) {
-    drawText(ctx, p.glyph, p.x, p.y, f, p.color, 'center', 'middle', Math.max(0, p.life));
+    const block = renderer.getBlock(p.glyph, f, size * 1.3);
+    renderer.drawBlock(ctx, block, p.x, p.y, {
+      color: p.color,
+      align: 'center',
+      verticalAlign: 'middle',
+      alpha: Math.max(0, p.life),
+    });
   }
 }
 
-// Umbrella — glyph arc + handle
+// Umbrella
 function drawUmbrella(s: GameState): void {
   const { umbrellaX: ux, umbrellaY: uy } = s;
-  const size = sz(W / 120, 6, 9);
-  const f = fnt(size, 700);
+  const size  = sz(W / 120, 6, 9);
+  const f     = fnt(size, 700);
   const lineH = Math.round(size * 1.1);
 
   const umbrellaArt = [
@@ -624,65 +634,69 @@ function drawUmbrella(s: GameState): void {
 
   const comboGlow = s.combo >= 3;
   const glowColor = comboGlow ? COLORS.comboGold : COLORS.amber;
-  const startY = uy - lineH;
+  const startY    = uy - lineH;
+
   const maxLineWidth = umbrellaArt.reduce((max, line) => {
-    const w = measureText(ctx, line, f).width;
-    return Math.max(max, w);
+    return Math.max(max, renderer.measureWidth(line, f));
   }, 0);
   const startX = ux - maxLineWidth / 2;
 
-  // Write real art pixel geometry into state so slide logic uses accurate coords
   s.umbrellaArtStartX = startX;
   s.umbrellaArtWidth  = maxLineWidth;
   s.umbrellaArtStartY = startY;
   s.umbrellaArtLineH  = lineH;
 
   for (let i = 0; i < umbrellaArt.length; i++) {
-    const line = umbrellaArt[i];
+    const line        = umbrellaArt[i];
     const isSignature = line.includes('Yb') || line.includes('VK');
-    const isHandle = line.trim() === '|' || line.trim() === 'A' || line.trim() === 'H';
-    const color = isSignature
-      ? COLORS.cyan
-      : isHandle
-        ? COLORS.umbrellaRim
-        : COLORS.umbrella;
-    drawTextShadow(
-      ctx,
-      line,
-      startX,
-      startY + i * lineH,
-      f,
+    const isHandle    = line.trim() === '|' || line.trim() === 'A' || line.trim() === 'H';
+    const color       = isSignature ? COLORS.cyan
+                      : isHandle    ? COLORS.umbrellaRim
+                      :               COLORS.umbrella;
+    const block = renderer.getBlock(line, f, lineH);
+    renderer.drawBlock(ctx, block, startX, startY + i * lineH, {
       color,
-      glowColor,
-      comboGlow ? 14 : 7,
-      'left',
-      'top'
-    );
+      shadowColor: glowColor,
+      shadowBlur: comboGlow ? 14 : 7,
+    });
   }
 }
 
-// Umbrella rain slides — drops streaming along the canopy surface then dripping off
+// Umbrella rain slides
 function drawUmbrellaSlides(s: GameState): void {
   if (s.umbrellaSlides.length === 0) return;
-
   const size = sz(W / 120, 6, 9);
-  const f = fnt(size, 700);
+  const f    = fnt(size, 700);
+  const lh   = size * 1.3;
 
   for (const slide of s.umbrellaSlides) {
     const fadeAlpha = Math.max(0, slide.life * slide.alpha);
     if (fadeAlpha <= 0) continue;
 
     if (slide.phase === 'slide') {
-      // Sliding along canopy: use a directional glyph (/ for left-moving, \ for right)
-      // dir=-1 means moving left so the streak trails rightward → use backslash
-      const g = slide.dir === -1 ? '\\' : '/';
-      drawText(ctx, g, slide.x, slide.y, f, COLORS.rain, 'center', 'middle', fadeAlpha);
+      const g     = slide.dir === -1 ? '\\' : '/';
+      const block = renderer.getBlock(g, f, lh);
+      renderer.drawBlock(ctx, block, slide.x, slide.y, {
+        color: COLORS.rain,
+        align: 'center',
+        verticalAlign: 'middle',
+        alpha: fadeAlpha,
+      });
     } else {
-      // Dripping off the edge: vertical drop with a fading tail
-      drawText(ctx, '|', slide.x, slide.y, f, COLORS.rain, 'center', 'middle', fadeAlpha);
-      // Faint dot above as a tail
-      drawText(ctx, '\u00b7', slide.x, slide.y - size * 1.4, f, COLORS.rainDim,
-        'center', 'middle', fadeAlpha * 0.5);
+      const block = renderer.getBlock('|', f, lh);
+      renderer.drawBlock(ctx, block, slide.x, slide.y, {
+        color: COLORS.rain,
+        align: 'center',
+        verticalAlign: 'middle',
+        alpha: fadeAlpha,
+      });
+      const dotBlock = renderer.getBlock('\u00b7', f, lh);
+      renderer.drawBlock(ctx, dotBlock, slide.x, slide.y - size * 1.4, {
+        color: COLORS.rainDim,
+        align: 'center',
+        verticalAlign: 'middle',
+        alpha: fadeAlpha * 0.5,
+      });
     }
   }
 }
@@ -690,25 +704,42 @@ function drawUmbrellaSlides(s: GameState): void {
 // Score popups
 function drawScorePopups(s: GameState): void {
   const size = sz(W / 65, 9, 13);
+  const f    = fnt(size, 700);
   for (const p of s.scorePopups) {
     const alpha = Math.min(1, p.life * 1.5);
-    drawTextShadow(ctx, p.text, p.x, p.y, fnt(size, 700), p.color,
-      p.color, 6, 'center', 'middle', alpha);
+    const block = renderer.getBlock(p.text, f, size * 1.3);
+    renderer.drawBlock(ctx, block, p.x, p.y, {
+      color: p.color,
+      shadowColor: p.color,
+      shadowBlur: 6,
+      align: 'center',
+      verticalAlign: 'middle',
+      alpha,
+    });
   }
 }
 
 // Level-up banner
 function drawLevelUpBanner(s: GameState): void {
   if (s.levelUpTimer <= 0) return;
-  const t     = s.levelUpTimer / 2.5; // 0..1 countdown
+  const t     = s.levelUpTimer / 2.5;
   const alpha = t < 0.25 ? t * 4 : t > 0.75 ? (1 - t) * 4 : 1;
   const size  = sz(W / 45, 11, 17);
   const f     = fnt(size, 700);
 
-  drawHRule(ctx, 0, H * 0.44, W, f, COLORS.dimGreen, '\u2500', alpha * 0.4);
-  drawTextShadow(ctx, s.levelUpText, W / 2, H * 0.44 + 6, f,
-    COLORS.brightAmber, COLORS.amber, 10, 'center', 'top', alpha);
-  drawHRule(ctx, 0, H * 0.44 + size + 10, W, f, COLORS.dimGreen, '\u2500', alpha * 0.4);
+  renderer.drawHRule(ctx, '\u2500', f, size + 4, 0, H * 0.44, W, {
+    color: COLORS.dimGreen, alpha: alpha * 0.4,
+  });
+  renderer.drawText(ctx, s.levelUpText, f, size + 4, W / 2, H * 0.44 + 6, {
+    color: COLORS.brightAmber,
+    shadowColor: COLORS.amber,
+    shadowBlur: 10,
+    align: 'center',
+    alpha,
+  });
+  renderer.drawHRule(ctx, '\u2500', f, size + 4, 0, H * 0.44 + size + 10, W, {
+    color: COLORS.dimGreen, alpha: alpha * 0.4,
+  });
 }
 
 // HUD top bar
@@ -718,8 +749,8 @@ function drawHUD(s: GameState): void {
   const f     = fnt(size);
   const pad   = 14;
   const barH  = size + 18;
+  const lh    = size + 4;
 
-  // BG
   ctx.fillStyle = '#0d1117ee';
   ctx.fillRect(0, 0, W, barH);
   ctx.fillStyle = COLORS.dimGreen;
@@ -727,30 +758,47 @@ function drawHUD(s: GameState): void {
 
   // Score
   const scoreStr = `SCORE: ${String(s.score).padStart(6, '0')}`;
-  drawText(ctx, scoreStr, pad, barH / 2, fb, COLORS.green, 'left', 'middle');
+  renderer.drawText(ctx, scoreStr, fb, lh, pad, barH / 2, {
+    color: COLORS.green,
+    align: 'left',
+    verticalAlign: 'middle',
+  });
 
   // Combo
   if (s.combo >= 2) {
     const comboAlpha = Math.min(1, s.combo * 0.2 + 0.4);
     const comboColor = s.combo >= 5 ? COLORS.comboGold : COLORS.brightAmber;
-    drawTextShadow(ctx, `COMBO \xd7${s.combo}`, W / 2 - 80, barH / 2, fnt(size - 1, 700),
-      comboColor, comboColor, 8, 'left', 'middle', comboAlpha);
+    renderer.drawText(ctx, `COMBO \xd7${s.combo}`, fnt(size - 1, 700), lh,
+      W / 2 - 80, barH / 2, {
+        color: comboColor,
+        shadowColor: comboColor,
+        shadowBlur: 8,
+        verticalAlign: 'middle',
+        alpha: comboAlpha,
+      });
   }
 
-  // HP hearts
+  // HP
   const hpStr   = '\u2665'.repeat(s.hp) + '\u2661'.repeat(s.maxHp - s.hp);
-  const hpLabel = 'HP: ';
   const hpColor = s.hp <= 1 ? COLORS.red : s.hp <= 2 ? COLORS.brightAmber : COLORS.cyan;
-  // Blink HP at 1 heart
   const hpAlpha = (s.hp <= 1 && Math.floor(Date.now() / 350) % 2 === 0) ? 0.4 : 1;
-  drawText(ctx, hpLabel + hpStr, W / 2 + 20, barH / 2, fb, hpColor, 'center', 'middle', hpAlpha);
+  renderer.drawText(ctx, 'HP: ' + hpStr, fb, lh, W / 2 + 20, barH / 2, {
+    color: hpColor,
+    align: 'center',
+    verticalAlign: 'middle',
+    alpha: hpAlpha,
+  });
 
   // Level / time
   const lvl = `LVL:${s.difficultyLevel + 1}  ${String(Math.floor(s.elapsed)).padStart(3, '0')}s`;
-  drawText(ctx, lvl, W - pad, barH / 2, f, COLORS.dim, 'right', 'middle');
+  renderer.drawText(ctx, lvl, f, lh, W - pad, barH / 2, {
+    color: COLORS.dim,
+    align: 'right',
+    verticalAlign: 'middle',
+  });
 }
 
-// Scanline overlay (CRT effect)
+// Scanline overlay (CRT effect) — stays as direct ctx calls (no text, just pixel rows)
 function drawScanlines(alpha: number): void {
   ctx.save();
   ctx.globalAlpha = alpha;
@@ -764,7 +812,6 @@ function drawScanlines(alpha: number): void {
 // ─── Game over overlay ────────────────────────────────────────────────────────
 
 function drawGameOver(s: GameState): void {
-  // Dim
   ctx.fillStyle = '#0d1117';
   ctx.globalAlpha = 0.82;
   ctx.fillRect(0, 0, W, H);
@@ -773,39 +820,46 @@ function drawGameOver(s: GameState): void {
   const cx    = W / 2;
   const cy    = H / 2;
   const size  = sz(W / 45, 12, 18);
+  const lh    = size + 4;
   const boxW  = Math.min(440, W - 40);
   const boxH  = 200;
   const boxX  = cx - boxW / 2;
   const boxY  = cy - boxH / 2;
 
-  // Glyph box border
-  drawGlyphBox(ctx, boxX, boxY, boxW, boxH, fnt(size), COLORS.red, 0.7);
+  renderer.drawGlyphBox(ctx, fnt(size), lh, boxX, boxY, boxW, boxH, {
+    color: COLORS.red, alpha: 0.7,
+  });
 
-  // Title
-  drawTextShadow(ctx, '[ PROCESS KILLED ]', cx, boxY + 22, fnt(size + 4, 700),
-    COLORS.red, COLORS.brightRed, 16, 'center', 'top');
+  renderer.drawText(ctx, '[ PROCESS KILLED ]', fnt(size + 4, 700), lh,
+    cx, boxY + 22, {
+      color: COLORS.red,
+      shadowColor: COLORS.brightRed,
+      shadowBlur: 16,
+      align: 'center',
+    });
 
-  // Divider
-  drawHRule(ctx, boxX + 10, boxY + 58, boxW - 20, fnt(size - 2), COLORS.dimGreen, '\u2500', 0.5);
+  renderer.drawHRule(ctx, '\u2500', fnt(size - 2), lh, boxX + 10, boxY + 58,
+    boxW - 20, { color: COLORS.dimGreen, alpha: 0.5 });
 
-  // Stats
-  drawText(ctx, `FINAL SCORE: ${s.score}`,
-    cx, boxY + 74, fnt(size, 700), COLORS.amber, 'center', 'top');
-  drawText(ctx, `SURVIVED: ${Math.floor(s.elapsed)}s   LEVEL REACHED: ${s.difficultyLevel + 1}`,
-    cx, boxY + 100, fnt(size - 1), COLORS.dim, 'center', 'top');
+  renderer.drawText(ctx, `FINAL SCORE: ${s.score}`, fnt(size, 700), lh,
+    cx, boxY + 74, { color: COLORS.amber, align: 'center' });
+
+  renderer.drawText(ctx,
+    `SURVIVED: ${Math.floor(s.elapsed)}s   LEVEL REACHED: ${s.difficultyLevel + 1}`,
+    fnt(size - 1), lh, cx, boxY + 100, { color: COLORS.dim, align: 'center' });
 
   if (s.combo > 1) {
-    drawText(ctx, `BEST COMBO: \xd7${s.combo}`,
-      cx, boxY + 122, fnt(size - 1), COLORS.cyan, 'center', 'top');
+    renderer.drawText(ctx, `BEST COMBO: \xd7${s.combo}`, fnt(size - 1), lh,
+      cx, boxY + 122, { color: COLORS.cyan, align: 'center' });
   }
 
-  drawHRule(ctx, boxX + 10, boxY + 148, boxW - 20, fnt(size - 2), COLORS.dimGreen, '\u2500', 0.5);
+  renderer.drawHRule(ctx, '\u2500', fnt(size - 2), lh, boxX + 10, boxY + 148,
+    boxW - 20, { color: COLORS.dimGreen, alpha: 0.5 });
 
-  // Restart prompt
   const blink = Math.floor(Date.now() / 500) % 2 === 0;
   if (blink) {
-    drawText(ctx, '> Press R / ENTER / tap to restart',
-      cx, boxY + 162, fnt(size - 1), COLORS.green, 'center', 'top');
+    renderer.drawText(ctx, '> Press R / ENTER / tap to restart', fnt(size - 1), lh,
+      cx, boxY + 162, { color: COLORS.green, align: 'center' });
   }
 }
 
