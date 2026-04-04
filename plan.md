@@ -132,7 +132,7 @@ npm run build
 6. Preview production build locally.
 
 ```powershell
-npm run preview
+npm run preview 
 ```
 
 ### Required npm Scripts
