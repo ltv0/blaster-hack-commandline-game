@@ -14,8 +14,6 @@ import {
 } from './game.ts';
 import { PretextRenderer } from './pretext-renderer.ts';
 
-// ─── Canvas ───────────────────────────────────────────────────────────────────
-
 const canvas = document.getElementById('game-canvas') as HTMLCanvasElement;
 const ctx = canvas.getContext('2d')!;
 const renderer = new PretextRenderer();
@@ -42,13 +40,11 @@ function resize(): void {
     state.travelerY = baseY;
     state.travelerBaseY = baseY;
     state.umbrellaW = Math.max(80, Math.min(220, W * 0.18));
+    buildAsciiBackground();
   }
 }
 
-// ─── Font helpers ─────────────────────────────────────────────────────────────
-
 const FONT_FAMILY = '"IBM Plex Mono", monospace';
-
 function fnt(size: number, weight: 400 | 700 = 400): string {
   return `${weight} ${size}px ${FONT_FAMILY}`;
 }
@@ -56,212 +52,209 @@ function sz(base: number, minV: number, maxV: number): number {
   return Math.max(minV, Math.min(maxV, base));
 }
 
-// ─── Audio engine ─────────────────────────────────────────────────────────────
-
 let audioCtx: AudioContext | null = null;
-
 function getAudio(): AudioContext | null {
-  if (!audioCtx) {
-    try { audioCtx = new AudioContext(); } catch { return null; }
-  }
+  if (!audioCtx) { try { audioCtx = new AudioContext(); } catch { return null; } }
   return audioCtx;
 }
-
 function resumeAudio(): void {
   const a = getAudio();
   if (a && a.state === 'suspended') a.resume();
 }
-
-function playTone(
-  freq: number,
-  type: OscillatorType,
-  gainVal: number,
-  duration: number,
-  startTime?: number,
-): void {
-  const a = getAudio();
-  if (!a) return;
-  const osc = a.createOscillator();
-  const gain = a.createGain();
-  osc.connect(gain);
-  gain.connect(a.destination);
-  osc.type = type;
-  osc.frequency.value = freq;
+function playTone(freq: number, type: OscillatorType, gainVal: number, duration: number, startTime?: number): void {
+  const a = getAudio(); if (!a) return;
+  const osc = a.createOscillator(); const gain = a.createGain();
+  osc.connect(gain); gain.connect(a.destination);
+  osc.type = type; osc.frequency.value = freq;
   const t = startTime ?? a.currentTime;
   gain.gain.setValueAtTime(gainVal, t);
   gain.gain.exponentialRampToValueAtTime(0.0001, t + duration);
-  osc.start(t);
-  osc.stop(t + duration + 0.01);
+  osc.start(t); osc.stop(t + duration + 0.01);
 }
-
 function playNoise(gainVal: number, duration: number, highpass = 800): void {
-  const a = getAudio();
-  if (!a) return;
+  const a = getAudio(); if (!a) return;
   const buf = a.createBuffer(1, a.sampleRate * duration, a.sampleRate);
   const data = buf.getChannelData(0);
   for (let i = 0; i < data.length; i++) data[i] = Math.random() * 2 - 1;
-  const src = a.createBufferSource();
-  src.buffer = buf;
-  const filter = a.createBiquadFilter();
-  filter.type = 'highpass';
-  filter.frequency.value = highpass;
+  const src = a.createBufferSource(); src.buffer = buf;
+  const filter = a.createBiquadFilter(); filter.type = 'highpass'; filter.frequency.value = highpass;
   const gain = a.createGain();
-  src.connect(filter);
-  filter.connect(gain);
-  gain.connect(a.destination);
+  src.connect(filter); filter.connect(gain); gain.connect(a.destination);
   gain.gain.setValueAtTime(gainVal, a.currentTime);
   gain.gain.exponentialRampToValueAtTime(0.0001, a.currentTime + duration);
-  src.start();
-  src.stop(a.currentTime + duration + 0.01);
+  src.start(); src.stop(a.currentTime + duration + 0.01);
 }
-
 function handleAudioEvents(events: AudioEvent[]): void {
-  const a = getAudio();
-  if (!a) return;
+  const a = getAudio(); if (!a) return;
   for (const ev of events) {
     switch (ev.kind) {
       case 'block':
-        if (ev.hazardType === 'hail') {
-          playNoise(0.12, 0.08, 1200);
-          playTone(220, 'square', 0.06, 0.06);
-        } else if (ev.hazardType === 'snow') {
-          playTone(880, 'sine', 0.04, 0.09);
-        } else {
-          playNoise(0.07, 0.05, 2000);
-        }
+        if (ev.hazardType === 'hail') { playNoise(0.12, 0.08, 1200); playTone(220, 'square', 0.06, 0.06); }
+        else if (ev.hazardType === 'snow') { playTone(880, 'sine', 0.04, 0.09); }
+        else { playNoise(0.07, 0.05, 2000); }
         break;
-      case 'hit':
-        playTone(110, 'sawtooth', 0.2, 0.15);
-        playNoise(0.25, 0.12, 400);
-        break;
-      case 'levelup': {
-        const t = a.currentTime;
-        playTone(330, 'square', 0.1, 0.12, t);
-        playTone(440, 'square', 0.1, 0.12, t + 0.12);
-        playTone(550, 'square', 0.1, 0.18, t + 0.24);
-        break;
-      }
-      case 'death':
-        playTone(220, 'sawtooth', 0.2, 0.4);
-        playTone(110, 'sawtooth', 0.15, 0.6);
-        playNoise(0.3, 0.5, 200);
-        break;
+      case 'hit': playTone(110, 'sawtooth', 0.2, 0.15); playNoise(0.25, 0.12, 400); break;
+      case 'levelup': { const t = a.currentTime; playTone(330,'square',0.1,0.12,t); playTone(440,'square',0.1,0.12,t+0.12); playTone(550,'square',0.1,0.18,t+0.24); break; }
+      case 'death': playTone(220,'sawtooth',0.2,0.4); playTone(110,'sawtooth',0.15,0.6); playNoise(0.3,0.5,200); break;
     }
   }
 }
 
-// ─── Static star field ────────────────────────────────────────────────────────
-
-interface Star { x: number; y: number; size: number; speed: number }
+// ─── Stars ────────────────────────────────────────────────────────────────────
+interface Star { x: number; y: number; size: number; speed: number; brightness: number }
 let stars: Star[] = [];
-
-function buildStars(w: number, h: number, count = 80): void {
+function buildStars(w: number, h: number, count = 130): void {
   stars = Array.from({ length: count }, () => ({
     x: Math.random() * w,
-    y: Math.random() * h,
-    size: Math.random() < 0.2 ? 2 : 1,
+    y: Math.random() * h * 0.82,
+    size: Math.random() < 0.15 ? 2 : 1,
     speed: 0.3 + Math.random() * 0.7,
+    brightness: 0.4 + Math.random() * 0.6,
   }));
 }
 
-// ─── State ────────────────────────────────────────────────────────────────────
+// ─── ASCII background ─────────────────────────────────────────────────────────
+const BG_CHARS = [
+  '\u2500','\u2502','\u250c','\u2510','\u2514','\u2518','\u251c','\u2524',
+  '\u2550','\u2551','\u2591','\u2592',
+  '+','-','=','~','^','|','/','\\',
+  '\u00b7','\u2022','\u25a1','\u2219',
+  '[',']','{','}','<','>',
+  'x','o','#','@','%',
+];
+interface BgCell { charIndex: number; phase: number; speed: number; changeTimer: number; changeInterval: number; }
+let bgCells: BgCell[] = [];
+let bgCols = 0; let bgRows = 0; let bgCellW = 0; let bgCellH = 0; let bgFont = '';
 
+function buildAsciiBackground(): void {
+  const size = sz(W / 95, 8, 11);
+  bgFont = fnt(size);
+  bgCellW = renderer.measureWidth('M', bgFont) || 8;
+  bgCellH = size * 1.3;
+  bgCols = Math.ceil(W / bgCellW) + 1;
+  bgRows = Math.ceil(H / bgCellH) + 1;
+  const needed = bgCols * bgRows;
+  if (bgCells.length !== needed) {
+    bgCells = Array.from({ length: needed }, () => ({
+      charIndex: Math.floor(Math.random() * BG_CHARS.length),
+      phase: Math.random() * Math.PI * 2,
+      speed: 0.12 + Math.random() * 0.4,
+      changeTimer: Math.random() * 6,
+      changeInterval: 2.5 + Math.random() * 9,
+    }));
+  }
+}
+function updateAsciiBackground(dt: number): void {
+  for (let i = 0; i < bgCells.length; i++) {
+    const c = bgCells[i];
+    c.phase += c.speed * dt;
+    if (c.phase > Math.PI * 2) c.phase -= Math.PI * 2;
+    c.changeTimer -= dt;
+    if (c.changeTimer <= 0) {
+      c.charIndex = Math.floor(Math.random() * BG_CHARS.length);
+      c.changeInterval = 2.5 + Math.random() * 9;
+      c.changeTimer = c.changeInterval;
+      c.speed = Math.random() < 0.1 ? 1.0 + Math.random() * 2.0 : 0.12 + Math.random() * 0.4;
+    }
+  }
+}
+function drawAsciiBackground(scrollY: number, baseAlpha: number, tintColor: string): void {
+  if (bgCells.length === 0 || bgCols === 0) return;
+  ctx.save();
+  const scrolledY = scrollY % bgCellH;
+  const groundY = H * 0.84;
+  for (let row = 0; row < bgRows; row++) {
+    const y = row * bgCellH - scrolledY;
+    if (y > groundY + bgCellH) continue;
+    for (let col = 0; col < bgCols; col++) {
+      const x = col * bgCellW;
+      const idx = row * bgCols + col;
+      if (idx >= bgCells.length) continue;
+      const cell = bgCells[idx];
+      const pulse = 0.3 + 0.7 * (0.5 + 0.5 * Math.sin(cell.phase));
+      const alpha = baseAlpha * pulse;
+      if (alpha < 0.004) continue;
+      const block = renderer.getBlock(BG_CHARS[cell.charIndex], bgFont, bgCellH);
+      renderer.drawBlock(ctx, block, x, y, { color: tintColor, alpha });
+    }
+  }
+  ctx.restore();
+}
+
+// ─── State + loop ─────────────────────────────────────────────────────────────
 let state: GameState;
-
 function init(): void {
-  resize();
-  buildStars(W, H);
+  resize(); buildStars(W, H); buildAsciiBackground();
   state = createInitialState(W, H);
   bindEvents();
   requestAnimationFrame(loop);
 }
-
-// ─── Game loop ────────────────────────────────────────────────────────────────
-
 let lastTime = 0;
-
 function loop(ts: number): void {
   const dt = Math.min((ts - lastTime) / 1000, 0.05);
   lastTime = ts;
-
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-
   update(state, dt);
+  updateAsciiBackground(dt);
   handleAudioEvents(state.audioEvents);
   draw(state);
-
   requestAnimationFrame(loop);
 }
 
-// ─── Top-level draw dispatcher ────────────────────────────────────────────────
-
+// ─── Draw dispatcher ──────────────────────────────────────────────────────────
 function draw(s: GameState): void {
-  ctx.fillStyle = COLORS.bg;
+  const grad = ctx.createLinearGradient(0, 0, 0, H);
+  grad.addColorStop(0,   '#060c14');
+  grad.addColorStop(0.55,'#091420');
+  grad.addColorStop(1,   '#0d1117');
+  ctx.fillStyle = grad;
   ctx.fillRect(0, 0, W, H);
-  if (s.phase === 'boot') {
-    drawBoot(s);
-  } else {
-    drawGame(s);
-    if (s.phase === 'dead') drawGameOver(s);
-  }
+  if (s.phase === 'boot') { drawBoot(s); }
+  else { drawGame(s); if (s.phase === 'dead') drawGameOver(s); }
 }
 
-// ─── Boot screen ─────────────────────────────────────────────────────────────
-
+// ─── Boot ─────────────────────────────────────────────────────────────────────
 function drawBoot(s: GameState): void {
-  const cx     = W / 2;
-  const lh     = sz(H / 24, 20, 28);
-  const size   = sz(W / 60, 11, 15);
+  const cx = W / 2;
+  const lh = sz(H / 24, 20, 28);
+  const size = sz(W / 60, 11, 15);
   const startY = H * 0.18;
   const indent = cx - sz(W * 0.28, 120, 230);
 
+  drawAsciiBackground(0, 0.055, COLORS.dimGreen);
   drawScanlines(0.04);
 
-  // Logo
-  const logoFont = fnt(size + 5, 700);
-  renderer.drawText(ctx, '[ BLASTER HACK ]', logoFont, lh, cx, startY - lh * 2.2, {
-    color: COLORS.green,
-    shadowColor: COLORS.green,
-    shadowBlur: 16,
-    align: 'center',
+  renderer.drawText(ctx, '[ BLASTER HACK ]', fnt(size + 5, 700), lh, cx, startY - lh * 2.2, {
+    color: COLORS.green, shadowColor: COLORS.green, shadowBlur: 20, align: 'center',
   });
+  renderer.drawHRule(ctx, '\u2550', fnt(size - 1), lh, indent, startY - lh * 0.7,
+    sz(W * 0.56, 240, 460), { color: COLORS.dimGreen, alpha: 0.7 });
 
-  // Rule under logo
-  renderer.drawHRule(ctx, '\u2500', fnt(size - 1), lh, indent, startY - lh * 0.7,
-    sz(W * 0.56, 240, 460), { color: COLORS.dimGreen, alpha: 0.6 });
-
-  // Boot lines
   for (let i = 0; i < s.bootLines.length; i++) {
-    const line      = s.bootLines[i];
-    const isLast    = i === s.bootLines.length - 1;
-    const isWarn    = line.startsWith('\u26a0');
-    const isPrompt  = line.startsWith('>');
-    const color     = isPrompt ? COLORS.amber
-                    : isWarn   ? COLORS.red
-                    : isLast   ? COLORS.white
-                    :             COLORS.dimGreen;
+    const line = s.bootLines[i];
+    const isWarn   = line.startsWith('\u26a0');
+    const isPrompt = line.startsWith('>');
+    const isLast   = i === s.bootLines.length - 1;
+    const color = isPrompt ? COLORS.amber : isWarn ? COLORS.red : isLast ? COLORS.white : COLORS.dimGreen;
     const f = (isPrompt || isWarn) ? fnt(size, 700) : fnt(size);
-
     if (isPrompt && s.bootDone) {
       const display = line.replace(/ _$/, '');
       renderer.drawText(ctx, display, f, lh, indent, startY + i * lh, { color });
       if (s.promptBlink) {
         const tw = renderer.measureWidth(display + ' ', f);
-        renderer.drawText(ctx, '_', f, lh, indent + tw, startY + i * lh, { color: COLORS.amber });
+        renderer.drawText(ctx, '\u258c', f, lh, indent + tw, startY + i * lh, { color: COLORS.amber });
       }
     } else {
       renderer.drawText(ctx, line, f, lh, indent, startY + i * lh, { color });
     }
   }
-
-  // Footer
   renderer.drawText(ctx, 'BLASTER HACK COMMANDLINE GAME  //  v1.0', fnt(size - 3), lh,
     cx, H - 18, { color: COLORS.dim, align: 'center', alpha: 0.4 });
 }
 
 // ─── Game world ───────────────────────────────────────────────────────────────
-
 function drawGame(s: GameState): void {
+  drawAsciiBackground(s.bgStarOffset * 0.3, 0.04, '#1a3a2a');
   drawStars(s);
   drawClouds(s);
   drawGround(s);
@@ -274,26 +267,22 @@ function drawGame(s: GameState): void {
   drawScorePopups(s);
   drawHUD(s);
   drawLevelUpBanner(s);
-
-  // Hit flash
   if (s.deathFlash > 0 && s.phase !== 'dead') {
-    ctx.save();
-    ctx.fillStyle = COLORS.red;
-    ctx.globalAlpha = s.deathFlash * 0.18;
-    ctx.fillRect(0, 0, W, H);
-    ctx.restore();
+    ctx.save(); ctx.fillStyle = COLORS.red; ctx.globalAlpha = s.deathFlash * 0.22;
+    ctx.fillRect(0, 0, W, H); ctx.restore();
   }
-
-  drawScanlines(0.035);
+  drawScanlines(0.03);
 }
 
-// Stars / parallax bg
+// Stars
 function drawStars(s: GameState): void {
+  const groundY = travelerGroundY(s);
   ctx.save();
   for (const star of stars) {
-    const y = (star.y + s.bgStarOffset * star.speed) % H;
-    ctx.fillStyle = COLORS.star;
-    ctx.globalAlpha = 0.6 + star.size * 0.2;
+    const y = (star.y + s.bgStarOffset * star.speed) % groundY;
+    const twinkle = 0.7 + 0.3 * Math.sin(s.elapsed * (1.2 + star.speed) + star.x * 0.05);
+    ctx.globalAlpha = star.brightness * twinkle;
+    ctx.fillStyle = star.size > 1 ? '#8899aa' : '#4a6070';
     ctx.fillRect(Math.round(star.x), Math.round(y), star.size, star.size);
   }
   ctx.restore();
@@ -301,108 +290,73 @@ function drawStars(s: GameState): void {
 
 // Clouds
 function getCloudLines(c: Cloud): string[] {
-  if (c.type === 'rain') {
-    return [
-      "   .-~~~~-.   .-.",
-      "  / R A I N ~~' \\",
-      " (   cloud   .   )",
-      "  `-.______.-'",
-      "  | ' | ' | ' |",
-    ];
-  } else if (c.type === 'snow') {
-    return [
-      " .-. .~~~. .-. .-.",
-      "(   ) SNOW (   )  )",
-      " `-' cloud `-' `-'",
-      "  `----_____----'",
-      "  * . * . * . *",
-    ];
-  } else {
-    return [
-      " /\\/\\/\\  HAIL  /\\/\\",
-      "|  ##  ########  |",
-      "|## cloud #####  |",
-      " \\__####/####__/",
-      "  O . O . O . O",
-    ];
-  }
+  if (c.type === 'rain') return [
+    "  .~~~~~~~~~~~~~~~~~~~~~~~~.",
+    " (   * R A I N  C L O U D *)",
+    "  `~~~~~~~~~~~~~~~~~~~~~~~~'",
+    "   | ' | ' | ' | ' |",
+  ];
+  if (c.type === 'snow') return [
+    "  .~~~~~~~~~~~~~~~~~~~~~~~~~~.",
+    " (   * S N O W  C L O U D *)",
+    "  `~~~~~~~~~~~~~~~~~~~~~~~~~~'",
+    "   * . * . * . * . *",
+  ];
+  return [
+    "  /\\/\\/\\/\\/\\/\\/\\/\\/\\",
+    " |   ## H A I L ##             |",
+    "  \\/\\/\\/\\/\\/\\/\\/\\/\\/",
+    "   O . O . O . O",
+  ];
 }
 
 function drawClouds(s: GameState): void {
-  const hudH  = sz(W / 70, 10, 14) + 18;
-  const size  = sz(W / 85, 7, 12);
-  const lineH = Math.round(size * 1.3);
-
+  const hudH  = sz(W / 70, 10, 14) + 20;
+  const size  = sz(W / 75, 9, 14);
+  const lineH = Math.round(size * 1.35);
   for (const cloud of s.clouds) {
-    const f     = fnt(size, 700);
+    const f = fnt(size, 700);
     const lines = getCloudLines(cloud);
-
     let maxW = 0;
     for (const l of lines) maxW = Math.max(maxW, renderer.measureWidth(l, f));
     cloud.artW = maxW;
-
     const startX = cloud.x - maxW / 2;
-    const startY = Math.max(hudH + 4, cloud.y);
-
-    const flash         = cloud.flashTimer > 0;
-    const flashStrength = cloud.flashTimer / 0.2;
-
-    let bodyColor: string, accentColor: string, rimColor: string;
+    const startY = Math.max(hudH + 6, cloud.y);
+    const flash = cloud.flashTimer > 0;
+    const flashStrength = Math.min(1, cloud.flashTimer / 0.2);
+    let bodyColor: string, accentColor: string, glowColor: string;
     if (cloud.type === 'rain') {
-      bodyColor   = flash ? '#3a6a9a' : '#1e3a52';
-      accentColor = COLORS.rain;
-      rimColor    = '#2a5070';
+      bodyColor = flash ? '#4a7aaa' : '#2a5070'; accentColor = COLORS.rain; glowColor = flash ? COLORS.rain : '#3a6090';
     } else if (cloud.type === 'snow') {
-      bodyColor   = flash ? '#6080a0' : '#2e4055';
-      accentColor = COLORS.snow;
-      rimColor    = '#4a6070';
+      bodyColor = flash ? '#7090b0' : '#3a5065'; accentColor = COLORS.snow; glowColor = flash ? COLORS.snow : '#506080';
     } else {
-      bodyColor   = flash ? '#505050' : '#252525';
-      accentColor = COLORS.hail;
-      rimColor    = '#383838';
+      bodyColor = flash ? '#686868' : '#3a3a3a'; accentColor = COLORS.hail; glowColor = flash ? COLORS.hail : '#505050';
     }
-
-    const glowColor = flash ? accentColor : rimColor;
-    const glowBlur  = flash ? 18 : 6;
-    const bodyAlpha = 0.85 + flashStrength * 0.15;
-
+    const glowBlur = flash ? 22 : 8;
+    const bodyAlpha = 0.9 + flashStrength * 0.1;
     for (let i = 0; i < lines.length - 1; i++) {
       const block = renderer.getBlock(lines[i], f, lineH);
       renderer.drawBlock(ctx, block, startX, startY + i * lineH, {
-        color: bodyColor,
-        shadowColor: glowColor,
-        shadowBlur: glowBlur,
-        alpha: bodyAlpha,
+        color: bodyColor, shadowColor: glowColor, shadowBlur: glowBlur, alpha: bodyAlpha,
       });
     }
-
-    const dripLine  = lines[lines.length - 1];
-    const dripY     = startY + (lines.length - 1) * lineH;
-    const dripPulse = flash
-      ? 1.0
-      : 0.55 + Math.sin(s.elapsed * 2.5 + cloud.id * 1.7) * 0.2;
+    const dripLine = lines[lines.length - 1];
+    const dripY = startY + (lines.length - 1) * lineH;
+    const dripPulse = flash ? 1.0 : 0.6 + Math.sin(s.elapsed * 2.8 + cloud.id * 1.7) * 0.25;
     const dripBlock = renderer.getBlock(dripLine, f, lineH);
     renderer.drawBlock(ctx, dripBlock, startX, dripY, {
-      color: accentColor,
-      shadowColor: accentColor,
-      shadowBlur: flash ? 14 : 4,
-      alpha: Math.max(0.25, dripPulse),
+      color: accentColor, shadowColor: accentColor, shadowBlur: flash ? 16 : 5,
+      alpha: Math.max(0.35, dripPulse),
     });
-
     if (flash) {
-      const dropF     = fnt(size - 1);
-      const dropY     = dripY + lineH;
-      const dropGlyph = cloud.type === 'rain' ? '|'
-                      : cloud.type === 'snow' ? '*'
-                      :                         'o';
-      const drops = 3;
-      for (let d = 0; d < drops; d++) {
-        const dx    = startX + (maxW / (drops + 1)) * (d + 1);
+      const dropF = fnt(size);
+      const dropY = dripY + lineH;
+      const dropGlyph = cloud.type === 'rain' ? '|' : cloud.type === 'snow' ? '*' : '\u25cf';
+      for (let d = 0; d < 4; d++) {
+        const dx = startX + (maxW / 5) * (d + 1);
         const block = renderer.getBlock(dropGlyph, dropF, lineH);
         renderer.drawBlock(ctx, block, dx, dropY, {
-          color: accentColor,
-          align: 'center',
-          alpha: flashStrength * 0.9,
+          color: accentColor, shadowColor: accentColor, shadowBlur: 10, align: 'center', alpha: flashStrength * 0.95,
         });
       }
     }
@@ -410,165 +364,125 @@ function drawClouds(s: GameState): void {
 }
 
 // Ground
-function travelerGroundY(s: GameState): number {
-  return Math.round(s.H * 0.84);
-}
-
+function travelerGroundY(s: GameState): number { return Math.round(s.H * 0.84); }
 function drawGround(s: GameState): void {
   const groundY = travelerGroundY(s);
-  const size    = sz(W / 80, 9, 12);
-  const f       = fnt(size);
-  const lineH   = Math.ceil(size * 1.35);
+  const size = sz(W / 80, 9, 12);
+  const f = fnt(size);
+  const lineH = Math.ceil(size * 1.35);
 
   ctx.fillStyle = COLORS.ground;
   ctx.fillRect(0, groundY, W, H - groundY);
+  const grd = ctx.createLinearGradient(0, groundY, 0, groundY + lineH * 2);
+  grd.addColorStop(0, 'rgba(57,211,83,0.07)');
+  grd.addColorStop(1, 'rgba(0,0,0,0)');
+  ctx.fillStyle = grd;
+  ctx.fillRect(0, groundY, W, lineH * 2);
 
   const rows = [
-    { pattern: '\u2593\u2592\u2591\u2593\u2592\u2591\u2593\u2592', color: COLORS.groundLine, alpha: 0.75 },
-    { pattern: '\u2592\u2591\xb7\u2592\u2591\u2592\xb7\u2591',    color: COLORS.groundText,  alpha: 0.55 },
-    { pattern: '\u2591\xb7 \u2591 \xb7\u2591 \xb7',               color: COLORS.groundText,  alpha: 0.30 },
-    { pattern: '\xb7  \xb7   \xb7 ',                               color: COLORS.groundText,  alpha: 0.18 },
+    { pattern: '\u2593\u2592\u2591\u2593\u2592\u2591\u2593\u2592', color: COLORS.groundLine, alpha: 0.85 },
+    { pattern: '\u2592\u2591\xb7\u2592\u2591\u2592\xb7\u2591',    color: COLORS.groundText,  alpha: 0.60 },
+    { pattern: '\u2591\xb7 \u2591 \xb7\u2591 \xb7',               color: COLORS.groundText,  alpha: 0.35 },
+    { pattern: '\xb7  \xb7   \xb7 ',                               color: COLORS.groundText,  alpha: 0.20 },
   ];
-
   const charW = renderer.measureWidth('\u2593', f);
-
+  if (charW <= 0) return;
   for (let row = 0; row < rows.length; row++) {
     const { pattern, color, alpha } = rows[row];
     const rowY = groundY + row * lineH + 2;
     if (rowY > H) break;
-
-    const scroll  = row % 2 === 0 ? s.groundOffset : -s.groundOffset;
-    const totalW  = pattern.length * charW;
+    const scroll = row % 2 === 0 ? s.groundOffset : -s.groundOffset;
+    const totalW = pattern.length * charW;
+    if (totalW <= 0) continue;
     let x = -((scroll % totalW) + totalW) % totalW;
-
-    while (x < W + totalW) {
-      const block = renderer.getBlock(pattern, f, lineH);
-      renderer.drawBlock(ctx, block, x, rowY, { color, alpha });
-      x += totalW;
-    }
+    const block = renderer.getBlock(pattern, f, lineH);
+    while (x < W + totalW) { renderer.drawBlock(ctx, block, x, rowY, { color, alpha }); x += totalW; }
   }
-
-  // Top separator dash line
-  const dashF   = fnt(size - 1);
-  const dashW   = renderer.measureWidth('\u2500', dashF);
-  const dashBlock = renderer.getBlock('\u2500', dashF, lineH);
-  let dx = 0;
-  while (dx < W) {
-    renderer.drawBlock(ctx, dashBlock, dx, groundY, { color: COLORS.dimGreen, alpha: 0.8 });
-    dx += dashW;
+  // Double-rule separator
+  const ruleF = fnt(size, 700);
+  const ruleBlock = renderer.getBlock('\u2550', ruleF, lineH);
+  const ruleW = renderer.measureWidth('\u2550', ruleF);
+  if (ruleW > 0) {
+    let dx = 0;
+    while (dx < W) { renderer.drawBlock(ctx, ruleBlock, dx, groundY - 1, { color: COLORS.green, alpha: 0.45 }); dx += ruleW; }
   }
 }
 
-// Wind indicator
+// Wind
 function drawWindIndicator(s: GameState): void {
   if (Math.abs(s.windX) < 5) return;
-  const dir   = s.windX > 0 ? '>>>' : '<<<';
+  const dir = s.windX > 0 ? '\u00bb\u00bb\u00bb' : '\u00ab\u00ab\u00ab';
   const speed = Math.abs(s.windX).toFixed(0);
-  const size  = sz(W / 90, 8, 11);
-  const alpha = Math.min(0.6, Math.abs(s.windX) / 80);
+  const size = sz(W / 90, 8, 11);
+  const alpha = Math.min(0.65, Math.abs(s.windX) / 70);
   const groundY = travelerGroundY(s);
-  renderer.drawText(ctx, `WIND ${dir} ${speed}`, fnt(size), size * 1.3,
-    12, groundY + 6, { color: COLORS.cyan, alpha });
+  renderer.drawText(ctx, `WIND ${dir} ${speed}px/s`, fnt(size, 700), size * 1.3, 14, groundY + 5, {
+    color: COLORS.cyan, shadowColor: COLORS.cyan, shadowBlur: 6, alpha,
+  });
 }
 
 // Traveler
 const TRAVELER_HEADS = ['(^)', '(o)', '(^)', '(-)'];
-const LEGS_IDLE  = ['/ \\', '/ \\'];
-const LEGS_WALK  = ['/ \\', ' |/ ', '/ \\', ' \\| '];
-const LEGS_RUN   = ['/|\\', '/ /', '|\\|', '\\ \\'];
-let tFrame = 0;
-let tLegFrame = 0;
-let tTimer = 0;
-let tLegTimer = 0;
+const LEGS_IDLE = ['/ \\', '/ \\'];
+const LEGS_WALK = ['/ \\', ' |/ ', '/ \\', ' \\| '];
+const LEGS_RUN  = ['/|\\', '/ /', '|\\|', '\\ \\'];
+let tFrame = 0; let tLegFrame = 0; let tTimer = 0; let tLegTimer = 0;
 
 function drawTraveler(s: GameState): void {
-  const speed     = Math.abs(s.travelerVX);
-  const maxSpeed  = s.travelerMaxSpeed || 220;
+  const speed = Math.abs(s.travelerVX);
+  const maxSpeed = s.travelerMaxSpeed || 220;
   const speedFrac = speed / maxSpeed;
-  const airborne  = s.isJumping;
-
-  const headInterval = speedFrac > 0.6 ? 0.10 : speedFrac > 0.2 ? 0.15 : 0.22;
+  const airborne = s.isJumping;
   tTimer += 0.016;
-  if (tTimer > headInterval) {
-    tTimer = 0;
-    tFrame = (tFrame + 1) % TRAVELER_HEADS.length;
-  }
-
+  const headInterval = speedFrac > 0.6 ? 0.10 : speedFrac > 0.2 ? 0.15 : 0.22;
+  if (tTimer > headInterval) { tTimer = 0; tFrame = (tFrame + 1) % TRAVELER_HEADS.length; }
   if (!airborne) {
-    const legInterval = speedFrac > 0.6 ? 0.07 : speedFrac > 0.15 ? 0.12 : 0.3;
     tLegTimer += 0.016;
+    const legInterval = speedFrac > 0.6 ? 0.07 : speedFrac > 0.15 ? 0.12 : 0.3;
     if (tLegTimer > legInterval) {
       tLegTimer = 0;
-      const legFrameCount = speedFrac > 0.6 ? LEGS_RUN.length : speedFrac > 0.15 ? LEGS_WALK.length : LEGS_IDLE.length;
-      tLegFrame = (tLegFrame + 1) % legFrameCount;
+      const lfc = speedFrac > 0.6 ? LEGS_RUN.length : speedFrac > 0.15 ? LEGS_WALK.length : LEGS_IDLE.length;
+      tLegFrame = (tLegFrame + 1) % lfc;
     }
   }
-
-  const legFrames     = speedFrac > 0.6 ? LEGS_RUN : speedFrac > 0.15 ? LEGS_WALK : LEGS_IDLE;
-  const groundLegStr  = legFrames[tLegFrame % legFrames.length];
-  const risingStr     = '\\o/';
-  const fallingStr    = '/o\\';
-  const armsJump      = s.travelerVY < 0 ? risingStr : fallingStr;
-  const legsJump      = s.travelerVY < 0 ? ' ^^' : ' vv';
-  const moving        = s.travelerVX;
-  const armsStr       = moving < -10 ? '<|>' : moving > 10 ? '>|<' : '/|\\';
-
+  const legFrames = speedFrac > 0.6 ? LEGS_RUN : speedFrac > 0.15 ? LEGS_WALK : LEGS_IDLE;
+  const groundLegStr = legFrames[tLegFrame % legFrames.length];
+  const armsJump = s.travelerVY < 0 ? '\\o/' : '/o\\';
+  const legsJump = s.travelerVY < 0 ? ' ^^' : ' vv';
+  const moving = s.travelerVX;
+  const armsStr = moving < -10 ? '<|>' : moving > 10 ? '>|<' : '/|\\';
   const size = sz(W / 40, 14, 22);
-  const f    = fnt(size, 700);
-  const lh   = size + 2;
-
+  const f = fnt(size, 700);
+  const lh = size + 2;
   const visible = s.hitCooldown > 0 ? (Math.floor(s.hitCooldown * 9) % 2 === 0) : true;
   if (!visible) return;
-
-  const glow   = s.hitCooldown > 0 ? COLORS.brightRed : airborne ? COLORS.brightAmber : COLORS.green;
+  const glow = s.hitCooldown > 0 ? COLORS.brightRed : airborne ? COLORS.brightAmber : COLORS.brightGreen;
   const wobble = !airborne && speedFrac > 0.7 ? Math.sin(Date.now() / 55) * 1.5 : 0;
-  const tx     = s.travelerX + wobble;
+  const tx = s.travelerX + wobble;
 
   if (airborne && s.travelerBaseY) {
-    const rise       = s.travelerBaseY - s.travelerY;
-    const maxRise    = s.H * 0.20;
-    const t          = Math.max(0, 1 - rise / maxRise);
-    const shadowAlpha = t * 0.55;
-    const shadowSize = Math.max(6, size * (0.5 + t * 0.8));
-    const shadowF    = fnt(shadowSize);
+    const rise = s.travelerBaseY - s.travelerY;
+    const maxRise = s.H * 0.20;
+    const t = Math.max(0, 1 - rise / maxRise);
+    const shadowF = fnt(Math.max(6, size * (0.5 + t * 0.8)));
     const shadowGlyph = t > 0.7 ? '(_____)' : t > 0.4 ? '(___)' : t > 0.15 ? '(_)' : '.';
-    const sBlock = renderer.getBlock(shadowGlyph, shadowF, shadowSize * 1.3);
-    renderer.drawBlock(ctx, sBlock, tx, s.travelerBaseY + size * 2.6, {
-      color: COLORS.dim,
-      align: 'center',
-      alpha: shadowAlpha,
-    });
+    const sBlock = renderer.getBlock(shadowGlyph, shadowF, size * 1.3);
+    renderer.drawBlock(ctx, sBlock, tx, s.travelerBaseY + size * 2.6, { color: COLORS.dim, align: 'center', alpha: t * 0.5 });
   }
 
-  const headStr   = airborne ? '(O)' : TRAVELER_HEADS[tFrame];
+  const headStr = airborne ? '(O)' : TRAVELER_HEADS[tFrame];
   const headBlock = renderer.getBlock(headStr, f, lh);
-  renderer.drawBlock(ctx, headBlock, tx, s.travelerY, {
-    color: COLORS.traveler,
-    shadowColor: glow,
-    shadowBlur: airborne ? 12 : 8,
-    align: 'center',
-  });
-
+  // Glow halo
+  renderer.drawBlock(ctx, headBlock, tx, s.travelerY, { color: glow, shadowColor: glow, shadowBlur: airborne ? 20 : 14, align: 'center', alpha: 0.45 });
+  // Solid character
+  renderer.drawBlock(ctx, headBlock, tx, s.travelerY, { color: COLORS.traveler, shadowColor: glow, shadowBlur: airborne ? 8 : 5, align: 'center' });
   const armsBlock = renderer.getBlock(airborne ? armsJump : armsStr, f, lh);
-  renderer.drawBlock(ctx, armsBlock, tx, s.travelerY + size + 2, {
-    color: COLORS.traveler,
-    align: 'center',
-  });
-
+  renderer.drawBlock(ctx, armsBlock, tx, s.travelerY + size + 2, { color: COLORS.traveler, align: 'center' });
   const legsBlock = renderer.getBlock(airborne ? legsJump : groundLegStr, f, lh);
-  renderer.drawBlock(ctx, legsBlock, tx, s.travelerY + size * 2 + 2, {
-    color: COLORS.traveler,
-    align: 'center',
-  });
-
+  renderer.drawBlock(ctx, legsBlock, tx, s.travelerY + size * 2 + 2, { color: COLORS.traveler, align: 'center' });
   if (!airborne && speedFrac > 0.65) {
-    const trailAlpha  = (speedFrac - 0.65) / 0.35 * 0.35;
-    const trailOffset = -s.travelerVX * 0.045;
-    renderer.drawBlock(ctx, headBlock, tx + trailOffset, s.travelerY, {
-      color: COLORS.traveler,
-      align: 'center',
-      alpha: trailAlpha,
-    });
+    const trailAlpha = (speedFrac - 0.65) / 0.35 * 0.28;
+    renderer.drawBlock(ctx, headBlock, tx - s.travelerVX * 0.045, s.travelerY, { color: COLORS.traveler, align: 'center', alpha: trailAlpha });
   }
 }
 
@@ -577,126 +491,106 @@ function drawHazards(s: GameState): void {
   const groundY = travelerGroundY(s);
   for (const h of s.hazards) {
     if (h.y > groundY) continue;
-    const base  = h.type === 'hail' ? sz(W / 55, 12, 17) : sz(W / 65, 10, 14);
-    const size  = Math.round(base * h.size);
-    const f     = fnt(size);
-    const color = h.type === 'rain' ? COLORS.rain
-                : h.type === 'snow' ? COLORS.snow
-                :                     COLORS.hail;
+    const base = h.type === 'hail' ? sz(W / 55, 12, 17) : sz(W / 65, 10, 14);
+    const size = Math.round(base * h.size);
+    const f = fnt(size, 700);
+    const color = h.type === 'rain' ? COLORS.rain : h.type === 'snow' ? COLORS.snow : COLORS.hail;
+    const shadowColor = h.type === 'rain' ? '#1a6090' : h.type === 'snow' ? '#6090b0' : '#606878';
     const alpha = Math.min(1, (h.y + 30) / 30);
     const block = renderer.getBlock(h.glyph, f, size * 1.3);
-    renderer.drawBlock(ctx, block, h.x, h.y, { color, align: 'center', verticalAlign: 'middle', alpha });
+    renderer.drawBlock(ctx, block, h.x, h.y, { color, shadowColor, shadowBlur: 6, align: 'center', verticalAlign: 'middle', alpha });
   }
 }
 
 // Particles
 function drawParticles(s: GameState): void {
   const size = sz(W / 70, 8, 12);
-  const f    = fnt(size);
+  const f = fnt(size);
   for (const p of s.particles) {
     const block = renderer.getBlock(p.glyph, f, size * 1.3);
-    renderer.drawBlock(ctx, block, p.x, p.y, {
-      color: p.color,
-      align: 'center',
-      verticalAlign: 'middle',
-      alpha: Math.max(0, p.life),
-    });
+    renderer.drawBlock(ctx, block, p.x, p.y, { color: p.color, shadowColor: p.color, shadowBlur: 4, align: 'center', verticalAlign: 'middle', alpha: Math.max(0, p.life) });
   }
 }
 
-// Umbrella
-function drawUmbrella(s: GameState): void {
-  const { umbrellaX: ux, umbrellaY: uy } = s;
-  const size  = sz(W / 120, 6, 9);
-  const f     = fnt(size, 700);
-  const lineH = Math.round(size * 1.1);
-
-  const umbrellaArt = [
+// ─── Umbrella ─────────────────────────────────────────────────────────────────
+// Canopy only — no leading-space lines that skew maxLineWidth measurement.
+const UMBRELLA_CANOPY = [
     "           ___.----' `----.___",
     "       _.-'   .-'  F  `   -   `-._",
     "    .-'    .'           \\   `-    `-.",
     "  .'              J            `.    `.",
     " /___    /                L      `  .--`.",
     "'    `-.  _.---._ |_.---._ .--\"\"\"-.'",
-    "        '        '  |     `",
-    "                    |",
-    "                    |",
-    "                    |",
-    "                    |",
-    "                    |",
-    "                    |",
-    "                    |",
-    "                    A",
-    "                    H",
-    "                    Yb   dB",
-    "                     YbmdP",
-  ];
+
+];
+const UMBRELLA_HANDLE_LINES = 8;
+const UMBRELLA_FOOT = ['A', 'H', '      Yb   dB', '     YbmdP'];
+
+function drawUmbrella(s: GameState): void {
+  const { umbrellaX: ux, umbrellaY: uy } = s;
+  const size  = sz(W / 100, 7, 11);
+  const f     = fnt(size, 700);
+  const lineH = Math.round(size * 1.15);
 
   const comboGlow = s.combo >= 3;
   const glowColor = comboGlow ? COLORS.comboGold : COLORS.amber;
-  const startY    = uy - lineH;
+  const glowBlur  = comboGlow ? 18 : 10;
 
-  const maxLineWidth = umbrellaArt.reduce((max, line) => {
-    return Math.max(max, renderer.measureWidth(line, f));
-  }, 0);
-  const startX = ux - maxLineWidth / 2;
+  let canopyW = 0;
+  for (const line of UMBRELLA_CANOPY) canopyW = Math.max(canopyW, renderer.measureWidth(line, f));
+
+  const startX = ux - canopyW / 2;
+  const startY = uy - lineH;
 
   s.umbrellaArtStartX = startX;
-  s.umbrellaArtWidth  = maxLineWidth;
+  s.umbrellaArtWidth  = canopyW;
   s.umbrellaArtStartY = startY;
   s.umbrellaArtLineH  = lineH;
 
-  for (let i = 0; i < umbrellaArt.length; i++) {
-    const line        = umbrellaArt[i];
-    const isSignature = line.includes('Yb') || line.includes('VK');
-    const isHandle    = line.trim() === '|' || line.trim() === 'A' || line.trim() === 'H';
-    const color       = isSignature ? COLORS.cyan
-                      : isHandle    ? COLORS.umbrellaRim
-                      :               COLORS.umbrella;
-    const block = renderer.getBlock(line, f, lineH);
+  for (let i = 0; i < UMBRELLA_CANOPY.length; i++) {
+    const block = renderer.getBlock(UMBRELLA_CANOPY[i], f, lineH);
     renderer.drawBlock(ctx, block, startX, startY + i * lineH, {
-      color,
-      shadowColor: glowColor,
-      shadowBlur: comboGlow ? 14 : 7,
+      color: COLORS.umbrella, shadowColor: glowColor, shadowBlur: glowBlur,
+    });
+  }
+
+  const handleStartY = startY + UMBRELLA_CANOPY.length * lineH;
+  const handleBlock  = renderer.getBlock('|', f, lineH);
+  for (let i = 0; i < UMBRELLA_HANDLE_LINES; i++) {
+    renderer.drawBlock(ctx, handleBlock, ux, handleStartY + i * lineH, {
+      color: COLORS.umbrellaRim, shadowColor: glowColor, shadowBlur: 5, align: 'center',
+    });
+  }
+
+  const footStartY = handleStartY + UMBRELLA_HANDLE_LINES * lineH;
+  for (let i = 0; i < UMBRELLA_FOOT.length; i++) {
+    const isSignature = UMBRELLA_FOOT[i].includes('Yb') || UMBRELLA_FOOT[i].includes('dB') || UMBRELLA_FOOT[i].includes('mdP');
+    const block = renderer.getBlock(UMBRELLA_FOOT[i], f, lineH);
+    renderer.drawBlock(ctx, block, ux, footStartY + i * lineH, {
+      color: isSignature ? COLORS.cyan : COLORS.umbrellaRim,
+      shadowColor: isSignature ? COLORS.cyan : glowColor,
+      shadowBlur: isSignature ? 8 : 4,
+      align: 'center',
     });
   }
 }
 
-// Umbrella rain slides
+// Umbrella slides
 function drawUmbrellaSlides(s: GameState): void {
   if (s.umbrellaSlides.length === 0) return;
   const size = sz(W / 120, 6, 9);
-  const f    = fnt(size, 700);
-  const lh   = size * 1.3;
-
+  const f = fnt(size, 700);
+  const lh = size * 1.3;
   for (const slide of s.umbrellaSlides) {
     const fadeAlpha = Math.max(0, slide.life * slide.alpha);
     if (fadeAlpha <= 0) continue;
-
     if (slide.phase === 'slide') {
-      const g     = slide.dir === -1 ? '\\' : '/';
+      const g = slide.dir === -1 ? '\\' : '/';
       const block = renderer.getBlock(g, f, lh);
-      renderer.drawBlock(ctx, block, slide.x, slide.y, {
-        color: COLORS.rain,
-        align: 'center',
-        verticalAlign: 'middle',
-        alpha: fadeAlpha,
-      });
+      renderer.drawBlock(ctx, block, slide.x, slide.y, { color: COLORS.rain, shadowColor: COLORS.rain, shadowBlur: 3, align: 'center', verticalAlign: 'middle', alpha: fadeAlpha });
     } else {
-      const block = renderer.getBlock('|', f, lh);
-      renderer.drawBlock(ctx, block, slide.x, slide.y, {
-        color: COLORS.rain,
-        align: 'center',
-        verticalAlign: 'middle',
-        alpha: fadeAlpha,
-      });
-      const dotBlock = renderer.getBlock('\u00b7', f, lh);
-      renderer.drawBlock(ctx, dotBlock, slide.x, slide.y - size * 1.4, {
-        color: COLORS.rainDim,
-        align: 'center',
-        verticalAlign: 'middle',
-        alpha: fadeAlpha * 0.5,
-      });
+      renderer.drawBlock(ctx, renderer.getBlock('|', f, lh), slide.x, slide.y, { color: COLORS.rain, align: 'center', verticalAlign: 'middle', alpha: fadeAlpha });
+      renderer.drawBlock(ctx, renderer.getBlock('\u00b7', f, lh), slide.x, slide.y - size * 1.4, { color: COLORS.rainDim, align: 'center', verticalAlign: 'middle', alpha: fadeAlpha * 0.5 });
     }
   }
 }
@@ -704,215 +598,116 @@ function drawUmbrellaSlides(s: GameState): void {
 // Score popups
 function drawScorePopups(s: GameState): void {
   const size = sz(W / 65, 9, 13);
-  const f    = fnt(size, 700);
+  const f = fnt(size, 700);
   for (const p of s.scorePopups) {
     const alpha = Math.min(1, p.life * 1.5);
     const block = renderer.getBlock(p.text, f, size * 1.3);
-    renderer.drawBlock(ctx, block, p.x, p.y, {
-      color: p.color,
-      shadowColor: p.color,
-      shadowBlur: 6,
-      align: 'center',
-      verticalAlign: 'middle',
-      alpha,
-    });
+    renderer.drawBlock(ctx, block, p.x, p.y, { color: p.color, shadowColor: p.color, shadowBlur: 12, align: 'center', verticalAlign: 'middle', alpha });
   }
 }
 
 // Level-up banner
 function drawLevelUpBanner(s: GameState): void {
   if (s.levelUpTimer <= 0) return;
-  const t     = s.levelUpTimer / 2.5;
+  const t = s.levelUpTimer / 2.5;
   const alpha = t < 0.25 ? t * 4 : t > 0.75 ? (1 - t) * 4 : 1;
-  const size  = sz(W / 45, 11, 17);
-  const f     = fnt(size, 700);
-
-  renderer.drawHRule(ctx, '\u2500', f, size + 4, 0, H * 0.44, W, {
-    color: COLORS.dimGreen, alpha: alpha * 0.4,
-  });
-  renderer.drawText(ctx, s.levelUpText, f, size + 4, W / 2, H * 0.44 + 6, {
-    color: COLORS.brightAmber,
-    shadowColor: COLORS.amber,
-    shadowBlur: 10,
-    align: 'center',
-    alpha,
-  });
-  renderer.drawHRule(ctx, '\u2500', f, size + 4, 0, H * 0.44 + size + 10, W, {
-    color: COLORS.dimGreen, alpha: alpha * 0.4,
-  });
+  const size = sz(W / 45, 11, 17);
+  const f = fnt(size, 700);
+  const bannerY = H * 0.44;
+  ctx.save(); ctx.fillStyle = '#060c14'; ctx.globalAlpha = alpha * 0.72;
+  ctx.fillRect(0, bannerY - 4, W, size + 22); ctx.restore();
+  renderer.drawHRule(ctx, '\u2550', f, size + 4, 0, bannerY - 2, W, { color: COLORS.green, alpha: alpha * 0.5 });
+  renderer.drawText(ctx, s.levelUpText, f, size + 4, W / 2, bannerY + 5, { color: COLORS.brightAmber, shadowColor: COLORS.amber, shadowBlur: 16, align: 'center', alpha });
+  renderer.drawHRule(ctx, '\u2550', f, size + 4, 0, bannerY + size + 12, W, { color: COLORS.green, alpha: alpha * 0.5 });
 }
 
-// HUD top bar
+// HUD
 function drawHUD(s: GameState): void {
-  const size  = sz(W / 70, 10, 14);
-  const fb    = fnt(size, 700);
-  const f     = fnt(size);
-  const pad   = 14;
-  const barH  = size + 18;
-  const lh    = size + 4;
+  const size = sz(W / 70, 10, 14);
+  const fb   = fnt(size, 700);
+  const f    = fnt(size);
+  const pad  = 14;
+  const barH = size + 20;
+  const textY = Math.round((barH - size) / 2);
 
-  ctx.fillStyle = '#0d1117ee';
+  ctx.fillStyle = 'rgba(6,12,20,0.9)';
   ctx.fillRect(0, 0, W, barH);
-  ctx.fillStyle = COLORS.dimGreen;
+  ctx.fillStyle = COLORS.green;
+  ctx.globalAlpha = 0.28;
   ctx.fillRect(0, barH, W, 1);
+  ctx.globalAlpha = 1;
 
-  // Score
-  const scoreStr = `SCORE: ${String(s.score).padStart(6, '0')}`;
-  renderer.drawText(ctx, scoreStr, fb, lh, pad, barH / 2, {
-    color: COLORS.green,
-    align: 'left',
-    verticalAlign: 'middle',
+  renderer.drawText(ctx, `SCORE: ${String(s.score).padStart(6, '0')}`, fb, size + 2, pad, textY, {
+    color: COLORS.green, shadowColor: COLORS.green, shadowBlur: 8,
   });
 
-  // Combo
   if (s.combo >= 2) {
-    const comboAlpha = Math.min(1, s.combo * 0.2 + 0.4);
     const comboColor = s.combo >= 5 ? COLORS.comboGold : COLORS.brightAmber;
-    renderer.drawText(ctx, `COMBO \xd7${s.combo}`, fnt(size - 1, 700), lh,
-      W / 2 - 80, barH / 2, {
-        color: comboColor,
-        shadowColor: comboColor,
-        shadowBlur: 8,
-        verticalAlign: 'middle',
-        alpha: comboAlpha,
-      });
+    const comboText = `COMBO \xd7${s.combo}`;
+    const comboW = renderer.measureWidth(comboText, fnt(size - 1, 700));
+    renderer.drawText(ctx, comboText, fnt(size - 1, 700), size + 2, W / 2 - comboW / 2 - 55, textY, {
+      color: comboColor, shadowColor: comboColor, shadowBlur: 10, alpha: Math.min(1, s.combo * 0.2 + 0.4),
+    });
   }
 
-  // HP
   const hpStr   = '\u2665'.repeat(s.hp) + '\u2661'.repeat(s.maxHp - s.hp);
+  const hpFull  = 'HP: ' + hpStr;
   const hpColor = s.hp <= 1 ? COLORS.red : s.hp <= 2 ? COLORS.brightAmber : COLORS.cyan;
-  const hpAlpha = (s.hp <= 1 && Math.floor(Date.now() / 350) % 2 === 0) ? 0.4 : 1;
-  renderer.drawText(ctx, 'HP: ' + hpStr, fb, lh, W / 2 + 20, barH / 2, {
-    color: hpColor,
-    align: 'center',
-    verticalAlign: 'middle',
-    alpha: hpAlpha,
+  const hpAlpha = (s.hp <= 1 && Math.floor(Date.now() / 350) % 2 === 0) ? 0.35 : 1;
+  const hpW     = renderer.measureWidth(hpFull, fb);
+  renderer.drawText(ctx, hpFull, fb, size + 2, W / 2 - hpW / 2 + 55, textY, {
+    color: hpColor, shadowColor: hpColor, shadowBlur: s.hp <= 2 ? 8 : 0, alpha: hpAlpha,
   });
 
-  // Level / time
-  const lvl = `LVL:${s.difficultyLevel + 1}  ${String(Math.floor(s.elapsed)).padStart(3, '0')}s`;
-  renderer.drawText(ctx, lvl, f, lh, W - pad, barH / 2, {
-    color: COLORS.dim,
-    align: 'right',
-    verticalAlign: 'middle',
-  });
+  const lvl  = `LVL:${s.difficultyLevel + 1}  ${String(Math.floor(s.elapsed)).padStart(3, '0')}s`;
+  const lvlW = renderer.measureWidth(lvl, f);
+  renderer.drawText(ctx, lvl, f, size + 2, W - pad - lvlW, textY, { color: COLORS.dim });
 }
 
-// Scanline overlay (CRT effect) — stays as direct ctx calls (no text, just pixel rows)
 function drawScanlines(alpha: number): void {
-  ctx.save();
-  ctx.globalAlpha = alpha;
-  ctx.fillStyle = '#000000';
-  for (let y = 0; y < H; y += 3) {
-    ctx.fillRect(0, y, W, 1);
-  }
+  ctx.save(); ctx.globalAlpha = alpha; ctx.fillStyle = '#000000';
+  for (let y = 0; y < H; y += 3) ctx.fillRect(0, y, W, 1);
   ctx.restore();
 }
 
-// ─── Game over overlay ────────────────────────────────────────────────────────
-
+// Game over
 function drawGameOver(s: GameState): void {
-  ctx.fillStyle = '#0d1117';
-  ctx.globalAlpha = 0.82;
-  ctx.fillRect(0, 0, W, H);
-  ctx.globalAlpha = 1;
-
-  const cx    = W / 2;
-  const cy    = H / 2;
-  const size  = sz(W / 45, 12, 18);
-  const lh    = size + 4;
-  const boxW  = Math.min(440, W - 40);
-  const boxH  = 200;
-  const boxX  = cx - boxW / 2;
-  const boxY  = cy - boxH / 2;
-
-  renderer.drawGlyphBox(ctx, fnt(size), lh, boxX, boxY, boxW, boxH, {
-    color: COLORS.red, alpha: 0.7,
-  });
-
-  renderer.drawText(ctx, '[ PROCESS KILLED ]', fnt(size + 4, 700), lh,
-    cx, boxY + 22, {
-      color: COLORS.red,
-      shadowColor: COLORS.brightRed,
-      shadowBlur: 16,
-      align: 'center',
-    });
-
-  renderer.drawHRule(ctx, '\u2500', fnt(size - 2), lh, boxX + 10, boxY + 58,
-    boxW - 20, { color: COLORS.dimGreen, alpha: 0.5 });
-
-  renderer.drawText(ctx, `FINAL SCORE: ${s.score}`, fnt(size, 700), lh,
-    cx, boxY + 74, { color: COLORS.amber, align: 'center' });
-
-  renderer.drawText(ctx,
-    `SURVIVED: ${Math.floor(s.elapsed)}s   LEVEL REACHED: ${s.difficultyLevel + 1}`,
-    fnt(size - 1), lh, cx, boxY + 100, { color: COLORS.dim, align: 'center' });
-
-  if (s.combo > 1) {
-    renderer.drawText(ctx, `BEST COMBO: \xd7${s.combo}`, fnt(size - 1), lh,
-      cx, boxY + 122, { color: COLORS.cyan, align: 'center' });
-  }
-
-  renderer.drawHRule(ctx, '\u2500', fnt(size - 2), lh, boxX + 10, boxY + 148,
-    boxW - 20, { color: COLORS.dimGreen, alpha: 0.5 });
-
-  const blink = Math.floor(Date.now() / 500) % 2 === 0;
-  if (blink) {
-    renderer.drawText(ctx, '> Press R / ENTER / tap to restart', fnt(size - 1), lh,
-      cx, boxY + 162, { color: COLORS.green, align: 'center' });
+  ctx.fillStyle = '#060c14'; ctx.globalAlpha = 0.88; ctx.fillRect(0, 0, W, H); ctx.globalAlpha = 1;
+  const cx   = W / 2;
+  const size = sz(W / 45, 12, 18);
+  const lh   = size + 6;
+  const boxW = Math.min(460, W - 40);
+  const boxH = 210;
+  const boxX = cx - boxW / 2;
+  const boxY = H / 2 - boxH / 2;
+  ctx.fillStyle = 'rgba(6,12,20,0.92)'; ctx.fillRect(boxX, boxY, boxW, boxH);
+  renderer.drawGlyphBox(ctx, fnt(size), lh, boxX, boxY, boxW, boxH, { color: COLORS.red, alpha: 0.8 });
+  renderer.drawText(ctx, '[ PROCESS KILLED ]', fnt(size + 4, 700), lh, cx, boxY + 20, { color: COLORS.red, shadowColor: COLORS.brightRed, shadowBlur: 22, align: 'center' });
+  renderer.drawHRule(ctx, '\u2550', fnt(size - 2), lh, boxX + 14, boxY + 60, boxW - 28, { color: COLORS.dimGreen, alpha: 0.6 });
+  renderer.drawText(ctx, `FINAL SCORE: ${s.score}`, fnt(size, 700), lh, cx, boxY + 76, { color: COLORS.amber, shadowColor: COLORS.amber, shadowBlur: 10, align: 'center' });
+  renderer.drawText(ctx, `SURVIVED: ${Math.floor(s.elapsed)}s   LEVEL REACHED: ${s.difficultyLevel + 1}`, fnt(size - 1), lh, cx, boxY + 104, { color: COLORS.dim, align: 'center' });
+  if (s.combo > 1) renderer.drawText(ctx, `BEST COMBO: \xd7${s.combo}`, fnt(size - 1), lh, cx, boxY + 126, { color: COLORS.cyan, align: 'center' });
+  renderer.drawHRule(ctx, '\u2550', fnt(size - 2), lh, boxX + 14, boxY + 154, boxW - 28, { color: COLORS.dimGreen, alpha: 0.6 });
+  if (Math.floor(Date.now() / 500) % 2 === 0) {
+    renderer.drawText(ctx, '> Press R / ENTER / tap to restart', fnt(size - 1, 700), lh, cx, boxY + 168, { color: COLORS.green, shadowColor: COLORS.green, shadowBlur: 8, align: 'center' });
   }
 }
 
 // ─── Events ───────────────────────────────────────────────────────────────────
-
 function canvasPos(e: MouseEvent | Touch): { x: number; y: number } {
   const r = canvas.getBoundingClientRect();
   return { x: e.clientX - r.left, y: e.clientY - r.top };
 }
-
 function bindEvents(): void {
-  window.addEventListener('resize', () => {
-    ctx.setTransform(1, 0, 0, 1, 0, 0);
-    resize();
-    buildStars(W, H);
-  });
-
-  window.addEventListener('keydown', (e) => {
-    resumeAudio();
-    handleKeyDown(state, e.key);
-  });
-
-  window.addEventListener('keyup', (e) => {
-    handleKeyUp(state, e.key);
-  });
-
-  canvas.addEventListener('mousemove', (e) => {
-    handlePointerMove(state, canvasPos(e).x, canvasPos(e).y);
-  });
-
-  canvas.addEventListener('mousedown', (e) => {
-    resumeAudio();
-    const p = canvasPos(e);
-    handlePointerDown(state, p.x, p.y);
-  });
-
+  window.addEventListener('resize', () => { ctx.setTransform(1,0,0,1,0,0); resize(); buildStars(W, H); buildAsciiBackground(); });
+  window.addEventListener('keydown', (e) => { resumeAudio(); handleKeyDown(state, e.key); });
+  window.addEventListener('keyup', (e) => { handleKeyUp(state, e.key); });
+  canvas.addEventListener('mousemove', (e) => { handlePointerMove(state, canvasPos(e).x, canvasPos(e).y); });
+  canvas.addEventListener('mousedown', (e) => { resumeAudio(); const p = canvasPos(e); handlePointerDown(state, p.x, p.y); });
   window.addEventListener('mouseup', () => handlePointerUp(state));
-
-  canvas.addEventListener('touchmove', (e) => {
-    e.preventDefault();
-    handlePointerMove(state, canvasPos(e.touches[0]).x, canvasPos(e.touches[0]).y);
-  }, { passive: false });
-
-  canvas.addEventListener('touchstart', (e) => {
-    e.preventDefault();
-    resumeAudio();
-    const p = canvasPos(e.touches[0]);
-    handlePointerDown(state, p.x, p.y);
-  }, { passive: false });
-
+  canvas.addEventListener('touchmove', (e) => { e.preventDefault(); handlePointerMove(state, canvasPos(e.touches[0]).x, canvasPos(e.touches[0]).y); }, { passive: false });
+  canvas.addEventListener('touchstart', (e) => { e.preventDefault(); resumeAudio(); const p = canvasPos(e.touches[0]); handlePointerDown(state, p.x, p.y); }, { passive: false });
   window.addEventListener('touchend', () => handlePointerUp(state));
 }
-
-// ─── Go ───────────────────────────────────────────────────────────────────────
 
 init();

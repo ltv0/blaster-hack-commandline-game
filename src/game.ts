@@ -829,12 +829,20 @@ function updateUmbrellaSlides(state: GameState, dt: number): void {
 
 function updateClouds(state: GameState, dt: number): void {
   const { W, difficultyLevel: level } = state;
-  for (const c of state.clouds) {
+  for (let i = state.clouds.length - 1; i >= 0; i--) {
+    const c = state.clouds[i];
     c.x += c.vx * dt;
     c.x += state.windX * 0.04 * dt;
     const pad = 140;
-    if (c.vx > 0 && c.x > W + pad) c.x = -pad;
-    if (c.vx < 0 && c.x < -pad)    c.x = W + pad;
+    const exitedRight = c.vx > 0 && c.x > W + pad;
+    const exitedLeft = c.vx < 0 && c.x < -pad;
+    if (exitedRight || exitedLeft) {
+      const spawnX = exitedRight ? -pad : W + pad;
+      const nextType = c.type;
+      state.clouds.splice(i, 1);
+      spawnCloud(state, spawnX, nextType);
+      continue;
+    }
     if (c.flashTimer > 0) c.flashTimer = Math.max(0, c.flashTimer - dt);
 
     // Per-cloud independent spawn — each cloud fires on its own cadence
