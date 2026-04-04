@@ -132,7 +132,7 @@ npm run build
 6. Preview production build locally.
 
 ```powershell
-npm run preview
+npm run preview 
 ```
 
 ### Required npm Scripts
@@ -169,6 +169,12 @@ Set-ExecutionPolicy -Scope CurrentUser RemoteSigned
 - [ ] Confirm mobile and desktop layout behavior
 - [ ] Deploy `dist/` output to selected platform
 - [ ] Verify live URL and restart flow in production
+
+---
+
+
+### Feature Checklist
+- [ ] 
 
 ---
 

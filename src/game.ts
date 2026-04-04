@@ -97,6 +97,14 @@ export interface GameState {
   // traveler
   travelerX: number;
   travelerY: number;
+  travelerBaseY: number;   // ground-level Y (travelerY rests here when not jumping)
+  travelerVX: number;      // current horizontal velocity (px/s)
+  travelerVY: number;      // vertical velocity for jumping (px/s, positive = down)
+  travelerMaxSpeed: number; // top speed cap (scales with difficulty)
+  keysHeld: Set<string>;   // currently pressed movement keys
+  jumpTimer: number;       // countdown to next jump (s)
+  jumpInterval: number;    // current interval between jumps (s)
+  isJumping: boolean;
 
   // umbrella
   umbrellaX: number;
@@ -226,6 +234,8 @@ export const COLORS = {
 // ─── Init ─────────────────────────────────────────────────────────────────────
 
 export function createInitialState(W: number, H: number): GameState {
+  const travelerSize = Math.max(14, Math.min(22, W / 40));
+  const baseY = Math.round(H * 0.84) - travelerSize * 2.95;
   return {
     phase: 'boot',
     W, H,
@@ -238,7 +248,15 @@ export function createInitialState(W: number, H: number): GameState {
     promptBlinkTimer: 0,
 
     travelerX: W * 0.38,
-    travelerY: H * 0.72,
+    travelerY: baseY,
+    travelerBaseY: baseY,
+    travelerVX: 0,
+    travelerVY: 0,
+    travelerMaxSpeed: 220,
+    keysHeld: new Set(),
+    jumpTimer: 2.5 + Math.random() * 1.5,
+    jumpInterval: 3.0,
+    isJumping: false,
 
     umbrellaX: W * 0.38,
     umbrellaY: H * 0.55,
@@ -300,6 +318,15 @@ export function createInitialState(W: number, H: number): GameState {
 
 function computeUmbrellaW(W: number): number {
   return Math.max(80, Math.min(220, W * 0.18));
+}
+
+function computeGroundY(state: GameState): number {
+  return Math.round(state.H * 0.84);
+}
+
+function computeTravelerBaseY(state: GameState): number {
+  const travelerSize = Math.max(14, Math.min(22, state.W / 40));
+  return computeGroundY(state) - travelerSize * 2.95;
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -558,6 +585,13 @@ function updateDead(state: GameState, dt: number): void {
 function updatePlaying(state: GameState, dt: number): void {
   state.elapsed += dt;
 
+  // Keep traveler's standing position pinned to the top of static ground.
+  state.travelerBaseY = computeTravelerBaseY(state);
+  if (!state.isJumping) {
+    state.travelerY = state.travelerBaseY;
+    state.travelerVY = 0;
+  }
+
   // Difficulty ramp every 15s
   const newLevel = Math.floor(state.elapsed / 15);
   if (newLevel > state.difficultyLevel) {
@@ -593,21 +627,65 @@ function updatePlaying(state: GameState, dt: number): void {
   state.groundOffset = (state.groundOffset + 55 * dt) % 120;
   state.bgStarOffset = (state.bgStarOffset + 10 * dt) % Math.max(1, state.H);
 
-  // Umbrella smooth follow
+  // Traveler automatic left-right movement — ramps with both level and elapsed time
+  const levelSpeed = 120 + state.difficultyLevel * 24;
+  const timeSpeedBoost = Math.min(140, state.elapsed * 2.2);
+  const maxSpeed = Math.min(420, levelSpeed + timeSpeedBoost);
+  state.travelerMaxSpeed = maxSpeed;
+  if (state.travelerVX === 0) state.travelerVX = maxSpeed; // start moving on game begin
+
+  const margin = 20;
+  state.travelerX += state.travelerVX * dt;
+  if (state.travelerX >= state.W - margin) {
+    state.travelerX = state.W - margin;
+    state.travelerVX = -maxSpeed;
+  } else if (state.travelerX <= margin) {
+    state.travelerX = margin;
+    state.travelerVX = maxSpeed;
+  }
+  // Keep speed magnitude current even mid-traverse (difficulty ramp)
+  state.travelerVX = Math.sign(state.travelerVX) * maxSpeed;
+
+  // Traveler jumping — fires at random intervals that shrink with difficulty
+  // Interval range: starts ~2–4s, tightens to ~0.6–1.4s at high levels
+  const jumpIntervalMin = Math.max(0.5,  2.0 - state.difficultyLevel * 0.18);
+  const jumpIntervalMax = Math.max(1.2,  4.2 - state.difficultyLevel * 0.28);
+
+  state.jumpTimer -= dt;
+  if (state.jumpTimer <= 0 && !state.isJumping) {
+    // Launch the jump
+    const jumpH = state.H * (0.10 + Math.random() * 0.10); // 10–20% of screen height
+    state.travelerVY = -Math.sqrt(2 * 900 * jumpH);         // v = sqrt(2gh)
+    state.isJumping = true;
+    state.jumpTimer = jumpIntervalMin + Math.random() * (jumpIntervalMax - jumpIntervalMin);
+  }
+
+  if (state.isJumping) {
+    const gravity = 900; // px/s²
+    state.travelerVY += gravity * dt;
+    state.travelerY  += state.travelerVY * dt;
+
+    if (state.travelerY >= state.travelerBaseY) {
+      state.travelerY  = state.travelerBaseY;
+      state.travelerVY = 0;
+      state.isJumping  = false;
+    }
+  }
   const lerpSpeed = 20;
   const hudH = 34;
   state.umbrellaX += (state.pointerX - state.umbrellaX) * Math.min(1, lerpSpeed * dt);
   state.umbrellaY += ((state.pointerY - 24) - state.umbrellaY) * Math.min(1, lerpSpeed * dt);
   const hw = state.umbrellaW / 2;
   state.umbrellaX = Math.max(hw + 4, Math.min(state.W - hw - 4, state.umbrellaX));
-  state.umbrellaY = Math.max(hudH + 8, Math.min(state.travelerY - 35, state.umbrellaY));
+  const umbrellaMaxY = state.travelerBaseY - 35;
+  state.umbrellaY = Math.max(hudH + 8, Math.min(umbrellaMaxY, state.umbrellaY));
 
   // Clouds — maintain count, update drift, fire per-cloud
   maintainClouds(state);
   updateClouds(state, dt);
 
   // Update hazards
-  const groundY = state.travelerY + 45;
+  const groundY = computeGroundY(state);
   const toRemove = new Set<number>();
 
   for (let i = 0; i < state.hazards.length; i++) {
@@ -751,12 +829,20 @@ function updateUmbrellaSlides(state: GameState, dt: number): void {
 
 function updateClouds(state: GameState, dt: number): void {
   const { W, difficultyLevel: level } = state;
-  for (const c of state.clouds) {
+  for (let i = state.clouds.length - 1; i >= 0; i--) {
+    const c = state.clouds[i];
     c.x += c.vx * dt;
     c.x += state.windX * 0.04 * dt;
     const pad = 140;
-    if (c.vx > 0 && c.x > W + pad) c.x = -pad;
-    if (c.vx < 0 && c.x < -pad)    c.x = W + pad;
+    const exitedRight = c.vx > 0 && c.x > W + pad;
+    const exitedLeft = c.vx < 0 && c.x < -pad;
+    if (exitedRight || exitedLeft) {
+      const spawnX = exitedRight ? -pad : W + pad;
+      const nextType = c.type;
+      state.clouds.splice(i, 1);
+      spawnCloud(state, spawnX, nextType);
+      continue;
+    }
     if (c.flashTimer > 0) c.flashTimer = Math.max(0, c.flashTimer - dt);
 
     // Per-cloud independent spawn — each cloud fires on its own cadence
@@ -781,6 +867,16 @@ export function handleKeyDown(state: GameState, key: string): void {
   if (state.phase === 'dead') {
     if (key === 'r' || key === 'R' || key === 'Enter' || key === ' ') restartGame(state);
   }
+  // Track movement keys during play
+  if (state.phase === 'playing') {
+    if (key === 'ArrowLeft' || key === 'ArrowRight' || key === 'a' || key === 'A' || key === 'd' || key === 'D') {
+      state.keysHeld.add(key);
+    }
+  }
+}
+
+export function handleKeyUp(state: GameState, key: string): void {
+  state.keysHeld.delete(key);
 }
 
 export function handlePointerMove(state: GameState, x: number, y: number): void {
@@ -809,5 +905,7 @@ function restartGame(state: GameState): void {
   const fresh = createInitialState(W, H);
   fresh.phase = 'playing';
   fresh.bootDone = true;
+  fresh.keysHeld = state.keysHeld; // preserve live key state across restart
+  fresh.keysHeld.clear();
   Object.assign(state, fresh);
 }

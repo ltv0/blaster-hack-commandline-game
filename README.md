@@ -14,10 +14,37 @@ Command-line themed browser game where you drag an umbrella to protect a travele
 ## Reference Resources
 - Main implementation reference: https://github.com/rinesh/pretext-breaker
 - Source code reference: https://github.com/rinesh/pretext-breaker/tree/main/src
-- Project README reference: https://github.com/rinesh/pretext-breaker#readme
-- Live demo reference: https://www.pretext.cool/demo/pretext-breaker
 - Pretext npm package reference: https://www.npmjs.com/package/@chenglou/pretext
 - Architecture alignment target: `src/main.ts`, `src/game.ts`, and `src/pretext-renderer.ts`.
+
+### Current Feature Checklist
+
+#### High Priority
+- [ ] Cloud wrap-around mechanics
+- [ ] BACKGROUND AND GORUND SHOULD BE DISTINGQUISHED BY TEXT INSTEAD OF BEING A BLANK CANVAS
+- [ ] Background ASCII terrain
+- [ ] Object trail effects
+- [ ] improving stick chungus
+- [ ] Boss hazards
+
+#### Medium Priority
+- [ ] Power-up system
+- [ ] Hazard variants
+- [ ] Milestone rewards
+- [ ] Sound effects
+- [ ] Background music
+- [ ] Screen shake
+- [ ] Particle variety
+
+#### Low Priority
+- [ ] Performance optimization
+- [ ] Mobile touch improvements
+- [ ] Settings menu
+- [ ] Save system
+- [ ] Community levels
+- [ ] Seasonal themes
+- [ ] Leaderboards
+- [ ] Mod support
 
 ## Windows Setup
 1. Install Node.js LTS: https://nodejs.org/
@@ -62,4 +89,3 @@ npm run preview
 - `npm run build` - Build static production output
 - `npm run preview` - Preview the built output
 - `npm run type-check` - Run TypeScript checks
-
