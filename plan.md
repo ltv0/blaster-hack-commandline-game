@@ -8,69 +8,57 @@ Command line themed video game project
 
 hosted on a website domain
 
+clouds at the top produce different weather conditions.
+
+protect a small guy with an umbrella.
+
+drag the umbrella to protect a small guy
+
+auto scroller
+
+we can make the land scape go by
+
+shark level
+
+introduce more elements for as long as it lives
+
+
+guy is moving aroudn at different speeds around differnet obstacles/speeds/environemnts
+
+could implement protecting mutlicle guys
+
 ---
 
 ## Tech Stack
 <!-- List all technologies, frameworks, libraries, and tools being used -->
 
-pretext github
-css html typescript to interact with pretext
-
+Keep it as basic as possible:
 
 - **Frontend**
-  - 
-  - 
-  - 
+  - HTML
+  - CSS
+  - TypeScript
+  - Vite
+  - `@chenglou/pretext`
+  - Canvas or plain DOM for rendering
 
 - **Backend**
-  - 
-  - 
-  - 
+  - None
 
 - **Database**
-  - preload different scripts
+  - None
 
+This keeps the project browser-only and easy to host.
 
-- **Other**
-  - 
-  - 
-  - 
 
 ---
 
 ## Hosting
 <!-- Specify hosting platform, domain, CDN, and related infrastructure -->
 
-- **Platform:**
-- **Domain:**
-- **Cost Estimate:**
-
----
-
-## API Keys
-<!-- Document all API keys, authentication tokens, and third-party service credentials -->
-
-### Environment Variables
-Store sensitive API keys in environment variables or a `.env` file:
-
-```bash
-# Example .env file structure
-API_KEY_1=your_api_key_here
-API_KEY_2=your_api_key_here
-SECRET_KEY=your_secret_key_here
-```
-
-### API Key Registry
-| Service | Key Name | Environment | Status | Notes |
-|---------|----------|-------------|--------|-------|
-|         |          |             |        |       |
-
-### Security Notes
-- Never commit API keys to version control
-- Use environment variables or secret management services
-- Rotate keys regularly
-- Use least privilege access for API keys
-- Consider using a secrets manager (e.g., AWS Secrets Manager, HashiCorp Vault)
+- **Platform:** GitHub Pages or Cloudflare Pages
+- **Domain:** Your custom domain later if needed
+- **Cost Estimate:** Free to start
 
 ---
 
@@ -115,18 +103,18 @@ project-root/
 ## Resources
 <!-- Links to documentation, tutorials, and useful references -->
 
-- [ ]
-- [ ]
-- [ ]
+- [Pretext README](https://github.com/chenglou/pretext)
+- [Vite](https://vite.dev/)
+- [TypeScript](https://www.typescriptlang.org/)
 
 ---
 
 ## Share Any Resources We End Up Using Here
 <!-- Additional resources discovered during development -->
 
-- [ ]
-- [ ]
-- [ ]
+- [Pretext README](https://github.com/chenglou/pretext)
+- [Vite](https://vite.dev/)
+- [GitHub Pages](https://pages.github.com/)
 
 ---
 
