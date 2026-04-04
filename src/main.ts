@@ -312,7 +312,7 @@ function drawBoot(s: GameState): void {
   const startY = H * 0.18;
   const indent = cx - sz(W * 0.28, 120, 230);
 
-  drawAsciiBackground(0, 0.055, COLORS.dimGreen);
+  drawAsciiBackground(0, 0.08, COLORS.dimGreen);
   drawScanlines(0.04);
 
   renderer.drawText(ctx, '[ WEATHER REPORT ]', fnt(size + 5, 700), lh, cx, startY - lh * 2.2, {
@@ -345,7 +345,7 @@ function drawBoot(s: GameState): void {
 
 // ─── Game world ───────────────────────────────────────────────────────────────
 function drawGame(s: GameState): void {
-  drawAsciiBackground(s.bgStarOffset * 0.3, 0.04, '#1a3a2a');
+  drawAsciiBackground(s.bgStarOffset * 0.3, 0.065, '#244d35');
   if (SHOW_CLOUD_SOURCE_FIELD) drawSourceField();
   drawStars(s);
   drawClouds(s);
@@ -967,10 +967,15 @@ function drawUmbrellaSlides(s: GameState): void {
     let drawY = slide.y;
 
     if (slide.phase === 'slide' && hasUmbrellaGeom && halfW > 0) {
-      const clampedX = Math.max(s.umbrellaArtStartX, Math.min(s.umbrellaArtStartX + s.umbrellaArtWidth, slide.x));
-      const xFrac = Math.min(1, Math.abs(clampedX - artCenterX) / halfW);
-      drawX = clampedX;
-      drawY = peakY + xFrac * (rimY - peakY);
+      if (slide.dir === 0) {
+        drawX = artCenterX;
+        drawY = slide.y;
+      } else {
+        const clampedX = Math.max(s.umbrellaArtStartX, Math.min(s.umbrellaArtStartX + s.umbrellaArtWidth, slide.x));
+        const xFrac = Math.min(1, Math.abs(clampedX - artCenterX) / halfW);
+        drawX = clampedX;
+        drawY = peakY + xFrac * (rimY - peakY);
+      }
     }
 
     // Use color/type for snow/rain
@@ -978,6 +983,8 @@ function drawUmbrellaSlides(s: GameState): void {
       let g;
       if (slide.type === 'snow') {
         g = slide.glyph;
+      } else if (slide.dir === 0) {
+        g = '|';
       } else {
         g = slide.dir === -1 ? '\\' : '/';
       }
