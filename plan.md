@@ -15,7 +15,7 @@ Command-line themed browser game where the player protects a moving character fr
 
 ## Scope
 
-### MVP (Ship First)
+### MVP (Ship First) (DONE)
 - One playable level with scrolling environment.
 - One character that moves continuously.
 - Umbrella drag interaction using mouse and touch.
@@ -173,9 +173,33 @@ Set-ExecutionPolicy -Scope CurrentUser RemoteSigned
 ---
 
 
-### Feature Checklist
-- [ ] 
+### Current Feature Checklist
 
+#### High Priority
+- [X] BASIC MVP
+- []Visual uplift
+- [ ] Cloud wrap-around mechanics
+- [ ] BACKGROUND AND GORUND SHOULD BE DISTINGQUISHED BY TEXT INSTEAD OF BEING A BLANK CANVAS
+- [ ] Background ASCII terrain
+- [ ] Object trail effects
+- [ ] improving stick chungus
+- [ ] Boss hazards
+
+#### Medium Priority
+- [ ] Power-up system
+- [ ] Hazard variants
+- [ ] Milestone rewards
+- [ ] Sound effects
+- [ ] Background music
+- [ ] Screen shake
+- [ ] Particle variety
+
+#### Low Priority
+- [ ] Performance optimization
+- [ ] Mobile touch improvements
+- [ ] Settings menu
+- [ ] Seasonal themes
+- [ ] Leaderboards
 ---
 
 ## File Structure

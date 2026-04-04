@@ -17,34 +17,7 @@ Command-line themed browser game where you drag an umbrella to protect a travele
 - Pretext npm package reference: https://www.npmjs.com/package/@chenglou/pretext
 - Architecture alignment target: `src/main.ts`, `src/game.ts`, and `src/pretext-renderer.ts`.
 
-### Current Feature Checklist
 
-#### High Priority
-- [ ] Cloud wrap-around mechanics
-- [ ] BACKGROUND AND GORUND SHOULD BE DISTINGQUISHED BY TEXT INSTEAD OF BEING A BLANK CANVAS
-- [ ] Background ASCII terrain
-- [ ] Object trail effects
-- [ ] improving stick chungus
-- [ ] Boss hazards
-
-#### Medium Priority
-- [ ] Power-up system
-- [ ] Hazard variants
-- [ ] Milestone rewards
-- [ ] Sound effects
-- [ ] Background music
-- [ ] Screen shake
-- [ ] Particle variety
-
-#### Low Priority
-- [ ] Performance optimization
-- [ ] Mobile touch improvements
-- [ ] Settings menu
-- [ ] Save system
-- [ ] Community levels
-- [ ] Seasonal themes
-- [ ] Leaderboards
-- [ ] Mod support
 
 ## Windows Setup
 1. Install Node.js LTS: https://nodejs.org/
