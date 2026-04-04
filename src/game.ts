@@ -36,6 +36,18 @@ export interface ScorePopup {
   life: number;
 }
 
+export interface HeartExplosion {
+  id: number;
+  x: number;
+  y: number;
+  vx: number;
+  vy: number;
+  life: number;
+  maxLife: number;
+  glyph: string;
+  color: string;
+}
+
 /**
  * A raindrop sliding along the umbrella canopy surface.
  * Spawned when rain (not hail/snow) is blocked.
@@ -136,6 +148,10 @@ export interface GameState {
   // score popups
   scorePopups: ScorePopup[];
   scorePopupIdCounter: number;
+
+  // heart explosions
+  heartExplosions: HeartExplosion[];
+  heartExplosionIdCounter: number;
 
   // scroll / parallax
   groundOffset: number;
@@ -283,6 +299,9 @@ export function createInitialState(W: number, H: number): GameState {
 
     scorePopups: [],
     scorePopupIdCounter: 0,
+
+    heartExplosions: [],
+    heartExplosionIdCounter: 0,
 
     groundOffset: 0,
     bgStarOffset: 0,
@@ -526,6 +545,33 @@ function spawnScorePopup(
   });
 }
 
+function spawnHeartExplosion(state: GameState, centerX: number, centerY: number): void {
+  const glyphs = ['♥', '✦', '★', '✢', '●'];
+  const count = 25; // More hearts for screen-wide effect
+  
+  for (let i = 0; i < count; i++) {
+    // Randomize spawn point across top portion of screen
+    const spawnX = Math.random() * state.W;
+    const spawnY = Math.random() * (state.H * 0.3);
+    
+    // Create varied trajectories to fill the screen
+    const angle = Math.random() * Math.PI * 2;
+    const speed = 120 + Math.random() * 200;
+    
+    state.heartExplosions.push({
+      id: state.heartExplosionIdCounter++,
+      x: spawnX,
+      y: spawnY,
+      vx: Math.cos(angle) * speed,
+      vy: Math.sin(angle) * speed + (Math.random() - 0.5) * 100,
+      life: 1,
+      maxLife: 1.0 + Math.random() * 0.5,
+      glyph: glyphs[Math.floor(Math.random() * glyphs.length)],
+      color: COLORS.brightRed,
+    });
+  }
+}
+
 /**
  * The umbrella art rows and their approximate x-offsets (in character columns)
  * for the canopy surface. Row 0 = first line of art ("|").
@@ -619,7 +665,7 @@ function updateBoot(state: GameState, dt: number): void {
 }
 
 function updateDead(state: GameState, dt: number): void {
-  state.deathFlash = Math.max(0, state.deathFlash - dt * 1.5);
+  state.deathFlash = Math.max(0, state.deathFlash - dt);
   updateParticles(state, dt);
   updateScorePopups(state, dt);
   updateUmbrellaSlides(state, dt);
@@ -773,10 +819,11 @@ function updatePlaying(state: GameState, dt: number): void {
         if (state.hitCooldown <= 0) {
           state.hp = Math.max(0, state.hp - 1);
           state.hitCooldown = 1.2;
-          state.deathFlash = 0.5;
+          state.deathFlash = 1.2;
           state.combo = 0;
           state.comboTimer = 0;
           spawnSplash(state, h.x, h.y, h.type, true);
+          spawnHeartExplosion(state, state.W / 2 + 55, state.H * 0.05);
           state.audioEvents.push({ kind: 'hit' });
           if (state.hp <= 0) {
             state.phase = 'dead';
@@ -803,10 +850,12 @@ function updatePlaying(state: GameState, dt: number): void {
   for (const idx of removeArr) state.hazards.splice(idx, 1);
 
   if (state.hitCooldown > 0) state.hitCooldown -= dt;
+  if (state.deathFlash > 0) state.deathFlash -= dt;
 
   updateParticles(state, dt);
   updateScorePopups(state, dt);
   updateUmbrellaSlides(state, dt);
+  updateHeartExplosions(state, dt);
 }
 
 function updateParticles(state: GameState, dt: number): void {
@@ -836,6 +885,18 @@ function updateParticles(state: GameState, dt: number): void {
     }
     
     if (p.life <= 0) state.particles.splice(i, 1);
+  }
+}
+
+function updateHeartExplosions(state: GameState, dt: number): void {
+  for (let i = state.heartExplosions.length - 1; i >= 0; i--) {
+    const h = state.heartExplosions[i];
+    h.x += h.vx * dt;
+    h.y += h.vy * dt;
+    h.vy += 200 * dt; // gravity
+    h.life -= dt / h.maxLife;
+    
+    if (h.life <= 0) state.heartExplosions.splice(i, 1);
   }
 }
 
