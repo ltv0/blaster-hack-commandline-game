@@ -266,6 +266,7 @@ function drawGame(s: GameState): void {
   drawHazards(s);
   drawParticles(s);
   drawUmbrella(s);
+  drawUmbrellaSlides(s);
   drawScorePopups(s);
   drawHUD(s);
   drawLevelUpBanner(s);
@@ -393,7 +394,6 @@ function drawUmbrella(s: GameState): void {
   const lineH = Math.round(size * 1.1);
 
   const umbrellaArt = [
-    "|",
     "           ___.----' `----.___",
     "       _.-'   .-'  F  `   -   `-._",
     "    .-'    .'           \\   `-    `-.",
@@ -408,12 +408,10 @@ function drawUmbrella(s: GameState): void {
     "                    |",
     "                    |",
     "                    |",
-    "                    |",
-    "                    |",
     "                    A",
     "                    H",
     "                    Yb   dB",
-    "                     YbmdP         VK",
+    "                     YbmdP",
   ];
 
   const comboGlow = s.combo >= 3;
@@ -424,6 +422,12 @@ function drawUmbrella(s: GameState): void {
     return Math.max(max, w);
   }, 0);
   const startX = ux - maxLineWidth / 2;
+
+  // Write real art pixel geometry into state so slide logic uses accurate coords
+  s.umbrellaArtStartX = startX;
+  s.umbrellaArtWidth  = maxLineWidth;
+  s.umbrellaArtStartY = startY;
+  s.umbrellaArtLineH  = lineH;
 
   for (let i = 0; i < umbrellaArt.length; i++) {
     const line = umbrellaArt[i];
@@ -446,6 +450,32 @@ function drawUmbrella(s: GameState): void {
       'left',
       'top'
     );
+  }
+}
+
+// Umbrella rain slides — drops streaming along the canopy surface then dripping off
+function drawUmbrellaSlides(s: GameState): void {
+  if (s.umbrellaSlides.length === 0) return;
+
+  const size = sz(W / 120, 6, 9);
+  const f = fnt(size, 700);
+
+  for (const slide of s.umbrellaSlides) {
+    const fadeAlpha = Math.max(0, slide.life * slide.alpha);
+    if (fadeAlpha <= 0) continue;
+
+    if (slide.phase === 'slide') {
+      // Sliding along canopy: use a directional glyph (/ for left-moving, \ for right)
+      // dir=-1 means moving left so the streak trails rightward → use backslash
+      const g = slide.dir === -1 ? '\\' : '/';
+      drawText(ctx, g, slide.x, slide.y, f, COLORS.rain, 'center', 'middle', fadeAlpha);
+    } else {
+      // Dripping off the edge: vertical drop with a fading tail
+      drawText(ctx, '|', slide.x, slide.y, f, COLORS.rain, 'center', 'middle', fadeAlpha);
+      // Faint dot above as a tail
+      drawText(ctx, '\u00b7', slide.x, slide.y - size * 1.4, f, COLORS.rainDim,
+        'center', 'middle', fadeAlpha * 0.5);
+    }
   }
 }
 

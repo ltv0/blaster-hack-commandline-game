@@ -35,6 +35,31 @@ export interface ScorePopup {
   life: number;
 }
 
+/**
+ * A raindrop sliding along the umbrella canopy surface.
+ * Spawned when rain (not hail/snow) is blocked.
+ * Slides laterally toward the nearest umbrella edge, then drips off.
+ */
+export interface UmbrellaSlide {
+  id: number;
+  x: number;        // current x position
+  y: number;        // current y position
+  // -1 = sliding left edge, +1 = sliding right edge
+  dir: -1 | 1;
+  // x coordinate of the edge it's heading toward
+  edgeX: number;
+  edgeY: number;    // y at that edge (umbrella surface height at that x)
+  phase: 'slide' | 'drip';
+  // slide: moves along canopy toward edge
+  slideSpeed: number;
+  // drip: falls freely after leaving the edge
+  vy: number;
+  life: number;     // 0..1, counts down
+  maxLife: number;
+  glyph: string;
+  alpha: number;
+}
+
 export type AudioEvent =
   | { kind: 'block'; hazardType: 'rain' | 'snow' | 'hail' }
   | { kind: 'hit' }
@@ -74,6 +99,10 @@ export interface GameState {
   particles: Particle[];
   particleIdCounter: number;
 
+  // umbrella rain slides
+  umbrellaSlides: UmbrellaSlide[];
+  umbrellaSlideIdCounter: number;
+
   // score popups
   scorePopups: ScorePopup[];
   scorePopupIdCounter: number;
@@ -108,7 +137,11 @@ export interface GameState {
   // vfx
   deathFlash: number;
 
-  // input
+  // umbrella art pixel geometry (written by renderer each frame, read by slide logic)
+  umbrellaArtStartX: number;
+  umbrellaArtWidth: number;
+  umbrellaArtStartY: number;
+  umbrellaArtLineH: number;
   pointerX: number;
   pointerY: number;
   pointerDown: boolean;
@@ -197,6 +230,9 @@ export function createInitialState(W: number, H: number): GameState {
     particles: [],
     particleIdCounter: 0,
 
+    umbrellaSlides: [],
+    umbrellaSlideIdCounter: 0,
+
     scorePopups: [],
     scorePopupIdCounter: 0,
 
@@ -226,6 +262,11 @@ export function createInitialState(W: number, H: number): GameState {
     pointerX: W / 2,
     pointerY: H / 2,
     pointerDown: false,
+
+    umbrellaArtStartX: 0,
+    umbrellaArtWidth: 0,
+    umbrellaArtStartY: 0,
+    umbrellaArtLineH: 0,
 
     audioEvents: [],
   };
@@ -274,7 +315,7 @@ function spawnSplash(
   type: 'rain' | 'snow' | 'hail',
   isHit = false
 ): void {
-  const count = isHit ? 10 : (type === 'hail' ? 7 : 4);
+  const count = isHit ? 10 : (type === 'hail' ? 7 : type === 'snow' ? 4 : 2);
   let color: string;
   let glyphs: string[];
   if (type === 'hail') {
@@ -318,6 +359,68 @@ function spawnScorePopup(
   });
 }
 
+/**
+ * The umbrella art rows and their approximate x-offsets (in character columns)
+ * for the canopy surface. Row 0 = first line of art ("|").
+ * The canopy rim is rows 1-6. We model the surface as the slope from the peak
+ * (row 1 centre) down to the left/right tips (row 6 ends).
+ *
+ * All pixel geometry is computed from state.umbrellaArtStartX/Width/StartY/LineH
+ * which the renderer writes each frame before update() is called.
+ */
+function spawnUmbrellaSlide(state: GameState, hitX: number, hitY: number): void {
+  const { umbrellaArtStartX, umbrellaArtWidth, umbrellaArtStartY, umbrellaArtLineH } = state;
+
+  // If renderer hasn't written art geometry yet, skip
+  if (umbrellaArtWidth === 0) return;
+
+  const artRight = umbrellaArtStartX + umbrellaArtWidth;
+
+  // The canopy surface spans art rows 1-6 (0-indexed).
+  // Peak is at row 1 (top of dome), rim/tips are at row 6.
+  // Left tip of row 6 art: "'" is the first char at col 0 of that line.
+  // Right tip: "'" is the last char. We approximate tips as artLeft and artRight.
+  const peakY   = umbrellaArtStartY + 1 * umbrellaArtLineH; // row 1
+  const rimY    = umbrellaArtStartY + 6 * umbrellaArtLineH; // row 6 (rim)
+
+  // Pick side based on hit position relative to art centre
+  const artCenterX = umbrellaArtStartX + umbrellaArtWidth / 2;
+  const dir: -1 | 1 = hitX <= artCenterX ? -1 : 1;
+
+  // Edge x = left or right tip of the canopy art
+  const edgeX = dir === -1 ? umbrellaArtStartX : artRight;
+  const edgeY = rimY;
+
+  // The surface slope: as x moves from centre to edge, y moves from peakY to rimY.
+  // We use this to compute starting y on the surface at hitX.
+  const halfW = umbrellaArtWidth / 2;
+  const xFrac = Math.min(1, Math.abs(hitX - artCenterX) / halfW);
+  const surfaceY = peakY + xFrac * (rimY - peakY);
+
+  const slideGlyphs = ['|', '\'', '\u00b7', '\u254e'];
+  const glyph = slideGlyphs[Math.floor(Math.random() * slideGlyphs.length)];
+
+  // Slide speed proportional to remaining distance to edge (steeper = faster)
+  const distToEdge = Math.abs(hitX - edgeX);
+  const slideSpeed = 55 + distToEdge * 1.1 + Math.random() * 25;
+
+  state.umbrellaSlides.push({
+    id: state.umbrellaSlideIdCounter++,
+    x: hitX,
+    y: surfaceY,
+    dir,
+    edgeX,
+    edgeY,
+    phase: 'slide',
+    slideSpeed,
+    vy: 0,
+    life: 1,
+    maxLife: 0.5 + Math.random() * 0.3,
+    glyph,
+    alpha: 0.9 + Math.random() * 0.1,
+  });
+}
+
 // ─── Update ───────────────────────────────────────────────────────────────────
 
 export function update(state: GameState, dt: number): void {
@@ -352,6 +455,7 @@ function updateDead(state: GameState, dt: number): void {
   state.deathFlash = Math.max(0, state.deathFlash - dt * 1.5);
   updateParticles(state, dt);
   updateScorePopups(state, dt);
+  updateUmbrellaSlides(state, dt);
 }
 
 function updatePlaying(state: GameState, dt: number): void {
@@ -428,7 +532,20 @@ function updatePlaying(state: GameState, dt: number): void {
       const uyBot = state.umbrellaY + state.umbrellaH + 12;
       if (h.x >= ux0 && h.x <= ux1 && h.y >= uyTop && h.y <= uyBot) {
         h.blocked = true;
-        spawnSplash(state, h.x, h.y, h.type, false);
+        // Rain slides off the canopy; hail/snow still splash
+        if (h.type === 'rain') {
+          // Spawn 1–2 slide drops per rain hit for a streaming feel
+          const slideCount = Math.random() < 0.55 ? 2 : 1;
+          for (let s = 0; s < slideCount; s++) {
+            // Slightly vary hit x so multiple drops look natural
+            const jitter = (Math.random() - 0.5) * 14;
+            spawnUmbrellaSlide(state, h.x + jitter, h.y);
+          }
+          // Small minimal splash so impact is still readable
+          spawnSplash(state, h.x, h.y, h.type, false);
+        } else {
+          spawnSplash(state, h.x, h.y, h.type, false);
+        }
         state.combo++;
         state.comboTimer = 0;
         const pts = (h.type === 'hail' ? 15 : h.type === 'snow' ? 8 : 5) * Math.max(1, state.combo);
@@ -476,6 +593,7 @@ function updatePlaying(state: GameState, dt: number): void {
 
   updateParticles(state, dt);
   updateScorePopups(state, dt);
+  updateUmbrellaSlides(state, dt);
 }
 
 function updateParticles(state: GameState, dt: number): void {
@@ -495,6 +613,46 @@ function updateScorePopups(state: GameState, dt: number): void {
     p.y -= 30 * dt;
     p.life -= dt * 1.6;
     if (p.life <= 0) state.scorePopups.splice(i, 1);
+  }
+}
+
+function updateUmbrellaSlides(state: GameState, dt: number): void {
+  const { umbrellaArtStartX, umbrellaArtWidth, umbrellaArtStartY, umbrellaArtLineH } = state;
+
+  const artCenterX = umbrellaArtStartX + umbrellaArtWidth / 2;
+  const halfW      = umbrellaArtWidth / 2;
+  const peakY      = umbrellaArtStartY + 1 * umbrellaArtLineH;
+  const rimY       = umbrellaArtStartY + 6 * umbrellaArtLineH;
+
+  for (let i = state.umbrellaSlides.length - 1; i >= 0; i--) {
+    const s = state.umbrellaSlides[i];
+    s.life -= dt / s.maxLife;
+    if (s.life <= 0) { state.umbrellaSlides.splice(i, 1); continue; }
+
+    if (s.phase === 'slide') {
+      s.x += s.dir * s.slideSpeed * dt;
+
+      // Y tracks the actual canopy slope: linear from peakY at centre to rimY at edge
+      if (halfW > 0) {
+        const xFrac = Math.min(1, Math.abs(s.x - artCenterX) / halfW);
+        s.y = peakY + xFrac * (rimY - peakY);
+      }
+
+      const pastEdge = s.dir === -1 ? s.x <= s.edgeX : s.x >= s.edgeX;
+      if (pastEdge) {
+        s.x = s.edgeX;
+        s.y = s.edgeY;
+        s.phase = 'drip';
+        s.vy = 80 + Math.random() * 50;
+        s.life = Math.max(s.life, 0.6);
+        s.maxLife = Math.max(s.maxLife, 0.35);
+      }
+    } else {
+      // Drip: fall freely with gravity, tiny outward drift
+      s.vy += 260 * dt;
+      s.y  += s.vy * dt;
+      s.x  += s.dir * 10 * dt;
+    }
   }
 }
 
