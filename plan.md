@@ -18,7 +18,7 @@ Command-line themed web game built for the browser and hosted on a website domai
 - New obstacles, speeds, and environments are introduced over time.
 
 ### Progression Ideas
-- Add a shark level.
+<!-- - Add a shark level. -->
 - Increase difficulty as the run continues.
 - Support multiple characters to protect later on.
 
@@ -50,6 +50,80 @@ This is the simplest stack I’d recommend for a browser-first game: fast to bui
 
 
 ---
+
+## Installation
+
+### System Prerequisites
+
+1. **Node.js** (v16 or higher)
+  - Download the **LTS Windows Installer (.msi)**: https://nodejs.org/
+  - Verify in **PowerShell**: `node --version` and `npm --version`
+  - npm comes bundled with Node.js
+
+2. **Git for Windows** (recommended)
+  - Download: https://git-scm.com/download/win
+  - Verify in **PowerShell**: `git --version`
+
+3. **Windows Terminal / PowerShell**
+  - Use PowerShell for all commands below
+
+### Optional (Quick Install with winget)
+
+If you use `winget`, you can install prerequisites with:
+
+```powershell
+winget install OpenJS.NodeJS.LTS
+winget install Git.Git
+```
+
+
+### Install Project Dependencies
+
+From PowerShell, in the project folder, run:
+
+```powershell
+npm install
+```
+
+This will install all required packages listed in `package.json`:
+
+- **Vite** - Fast build tool and dev server for TypeScript/JavaScript projects
+- **TypeScript** - Type-safe JavaScript compiler
+- **@chenglou/pretext** - Terminal-like text rendering library for the retro aesthetic
+- **Web Audio API** - Built into modern browsers (no install needed)
+
+### Verify Installation
+
+Start the development server to confirm everything works:
+
+```powershell
+npm run dev
+```
+
+The game should load in your browser at `http://localhost:5173` (or the URL shown in the terminal).
+
+### Build for Production
+
+When ready to deploy:
+
+```powershell
+npm run build
+```
+
+This creates optimized static files in the `dist/` folder ready for hosting.
+
+### Windows Troubleshooting
+
+- If `npm` or `node` is not recognized, close and reopen PowerShell after install.
+- If still not recognized, confirm Node.js was added to PATH, then restart your machine.
+- If script policy errors appear, run PowerShell as Administrator and use:
+
+```powershell
+Set-ExecutionPolicy -Scope CurrentUser RemoteSigned
+```
+
+- If port `5173` is already in use, stop the other process or run Vite on a different port.
+
 
 ## Hosting
 <!-- Specify hosting platform, domain, CDN, and related infrastructure -->
@@ -99,20 +173,64 @@ project-root/
 ## Resources
 <!-- Links to documentation, tutorials, and useful references -->
 
+### Core Technologies
+- **TypeScript**: https://www.typescriptlang.org/docs/
+- **Vite**: https://vitejs.dev/guide/
+- **HTML Canvas API**: https://developer.mozilla.org/en-US/docs/Web/API/Canvas_API
+- **CSS Animations**: https://developer.mozilla.org/en-US/docs/Web/CSS/CSS_Animations
+
+### Game Development
+- **Canvas Rendering Best Practices**: https://developer.mozilla.org/en-US/docs/Web/API/Canvas_API/Tutorial
+- **Game Loop Pattern**: https://www.isaacsukin.com/news/2015/01/detailed-explanation-game-loops-and-timing
+- **Input Handling (Mouse/Touch)**: https://developer.mozilla.org/en-US/docs/Web/API/Pointer_events
+
+### Libraries & Utilities
+- **Pretext (@chenglou/pretext)**: https://github.com/chenglou/pretext
+  - Terminal-like text rendering for retro aesthetic
+  - GitHub repository for examples and issues
+- **Web Audio API**: https://developer.mozilla.org/en-US/docs/Web/API/Web_Audio_API
+  - For sound effects and audio feedback
+
+### Inspiration & Reference Games
+- **Flappy Bird (web version)**: Classic simple game mechanics
+- **Commander Keen**: Platformer with command-line theming inspiration
+- **ASCII Art Games**: Terminal-based game aesthetics
+- **Game Design Resources**:
+  - https://www.gamasutra.com/ (game design articles)
+  - https://ldjam.com/ (Ludum Dare game jam examples)
+
+### Hosting & Deployment
+- **GitHub Pages**: https://pages.github.com/
+  - Static site hosting with free tier
+  - Direct GitHub integration
+- **Cloudflare Pages**: https://pages.cloudflare.com/
+  - Alternative static hosting with git integration
+  - Free tier with unlimited deployments
+- **Deployment Guides**:
+  - GitHub Pages with Vite: https://vitejs.dev/guide/static-deploy.html#github-pages
+  - Custom Domain Setup: https://docs.github.com/en/pages/configuring-a-custom-domain-for-your-github-pages-site
+
+### Performance & Browser APIs
+- **RequestAnimationFrame**: https://developer.mozilla.org/en-US/docs/Web/API/window/requestAnimationFrame
+  - Recommended for smooth game loops
+- **Web Workers**: https://developer.mozilla.org/en-US/docs/Web/API/Web_Workers_API
+  - For offloading heavy computations if needed later
+- **Browser DevTools Performance**: https://developer.chrome.com/docs/devtools/performance/
+
+### Design & Aesthetics
+- **Terminal Font Libraries**:
+  - Courier New (system default)
+  - IBM Plex Mono: https://github.com/IBM/plex
+  - JetBrains Mono: https://www.jetbrains.com/lp/mono/
+- **Color Palettes for Retro Terminal**:
+  - Dracula: https://draculatheme.com/
+  - Gruvbox: https://github.com/morhetz/gruvbox
+  - Solarized: https://ethanschoonover.com/solarized/
+
 - [Pretext README](https://github.com/chenglou/pretext)
 - [Vite](https://vite.dev/)
 - [TypeScript](https://www.typescriptlang.org/)
-
----
-
-## Share Any Resources We End Up Using Here
-<!-- Additional resources discovered during development -->
-
-- [Pretext README](https://github.com/chenglou/pretext)
-- [Vite](https://vite.dev/)
 - [GitHub Pages](https://pages.github.com/)
-
----
 
 ## Additional Sections (Optional)
 
