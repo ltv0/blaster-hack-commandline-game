@@ -344,13 +344,14 @@ function drawGame(s: GameState): void {
   drawTraveler(s);
   drawHazards(s);
   drawParticles(s);
+  drawHeartExplosions(s);
   drawUmbrella(s);
   drawUmbrellaSlides(s);
   drawScorePopups(s);
   drawHUD(s);
   drawLevelUpBanner(s);
   if (s.deathFlash > 0 && s.phase !== 'dead') {
-    ctx.save(); ctx.fillStyle = COLORS.red; ctx.globalAlpha = s.deathFlash * 0.22;
+    ctx.save(); ctx.fillStyle = COLORS.red; ctx.globalAlpha = s.deathFlash * 0.35;
     ctx.fillRect(0, 0, W, H); ctx.restore();
   }
   drawScanlines(0.03);
@@ -578,6 +579,23 @@ function drawParticles(s: GameState): void {
   for (const p of s.particles) {
     const block = renderer.getBlock(p.glyph, f, size * 1.3);
     renderer.drawBlock(ctx, block, p.x, p.y, { color: p.color, shadowColor: p.color, shadowBlur: 4, align: 'center', verticalAlign: 'middle', alpha: Math.max(0, p.life) });
+  }
+}
+
+function drawHeartExplosions(s: GameState): void {
+  const size = sz(W / 70, 10, 16);
+  const f = fnt(size);
+  for (const h of s.heartExplosions) {
+    const block = renderer.getBlock(h.glyph, f, size * 1.5);
+    const alpha = Math.max(0, h.life);
+    renderer.drawBlock(ctx, block, h.x, h.y, { 
+      color: h.color, 
+      shadowColor: h.color, 
+      shadowBlur: 8, 
+      align: 'center', 
+      verticalAlign: 'middle', 
+      alpha 
+    });
   }
 }
 
