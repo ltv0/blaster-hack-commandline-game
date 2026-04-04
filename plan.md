@@ -9,6 +9,7 @@ Command-line themed browser game where the player protects a moving character fr
 - Ship a playable MVP that runs fully in the browser.
 - Keep implementation lightweight and static-host friendly.
 - Preserve a retro terminal aesthetic while remaining readable on desktop and mobile.
+- Use text-only visual assets rendered via glyphs (no bitmap or vector sprite assets).
 
 ---
 
@@ -52,6 +53,7 @@ Command-line themed browser game where the player protects a moving character fr
 - Score increments at predictable intervals (for example, every second).
 - Difficulty increase is noticeable within the first 60-90 seconds.
 - Game runs at stable frame pacing on modern desktop and mobile browsers.
+- Gameplay visuals are composed only from text/glyph rendering (ASCII-style blocks and symbols).
 
 ---
 
@@ -191,19 +193,31 @@ project-root/
 
 ## References
 
+### Implementation Reference
+- Pretext Breaker repository: https://github.com/rinesh/pretext-breaker
+- Source folder reference: https://github.com/rinesh/pretext-breaker/tree/main/src
+- README reference: https://github.com/rinesh/pretext-breaker#readme
+- Live demo reference: https://www.pretext.cool/demo/pretext-breaker
+- Pretext npm package reference: https://www.npmjs.com/package/@chenglou/pretext
+- Mirror architecture and rendering patterns from `src/main.ts`, `src/game.ts`, and `src/pretext-renderer.ts`.
+
+### How to Use This Reference
+- Reuse: app bootstrap and loop wiring patterns from `src/main.ts` and `src/game.ts`.
+- Reuse: measured-text rendering helpers and caching flow from `src/pretext-renderer.ts`.
+- Adapt: gameplay entities, collision rules, and balancing to this umbrella survival concept.
+- Adapt: UI copy, prompt text, and HUD labels to match this game's theme and controls.
+- Keep: static-hosting workflow (`npm run build`, `npm run preview`) and TypeScript/Vite project conventions.
+- Keep: all on-canvas visuals text-first (glyphs/ASCII), matching the pretext-breaker demo direction.
+- Verify: each imported pattern still works with this project's controls (mouse/touch drag + restart flow).
+
 ### Core Docs
 - TypeScript: https://www.typescriptlang.org/docs/
 - Vite Guide: https://vitejs.dev/guide/
 - Canvas API: https://developer.mozilla.org/en-US/docs/Web/API/Canvas_API
 - CSS Animations: https://developer.mozilla.org/en-US/docs/Web/CSS/CSS_Animations
-
-### Game Development
-- Canvas Tutorial: https://developer.mozilla.org/en-US/docs/Web/API/Canvas_API/Tutorial
-- Pointer Events: https://developer.mozilla.org/en-US/docs/Web/API/Pointer_events
-- requestAnimationFrame: https://developer.mozilla.org/en-US/docs/Web/API/window/requestAnimationFrame
-
 ### Project Libraries
-- Pretext (`@chenglou/pretext`): https://github.com/chenglou/pretext
+- Pretext (`@chenglou/pretext`) npm package: https://www.npmjs.com/package/@chenglou/pretext
+- Pretext GitHub repository: https://github.com/chenglou/pretext
 - Web Audio API: https://developer.mozilla.org/en-US/docs/Web/API/Web_Audio_API
 
 ### Deployment Docs
