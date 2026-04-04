@@ -48,8 +48,13 @@ function resize(): void {
 }
 
 const FONT_FAMILY = '"IBM Plex Mono", monospace';
+//const CLOUD_FONT_FAMILY = '"IBM Plex Sans", sans-serif'; for proportional
+const CLOUD_FONT_FAMILY = '"IBM Plex Mono", monospace';
 function fnt(size: number, weight: 400 | 700 = 400): string {
   return `${weight} ${size}px ${FONT_FAMILY}`;
+}
+function cloudFnt(size: number, weight: 400 | 700 = 700): string {
+  return `italic ${weight} ${size}px ${CLOUD_FONT_FAMILY}`;
 }
 function sz(base: number, minV: number, maxV: number): number {
   return Math.max(minV, Math.min(maxV, base));
@@ -188,6 +193,7 @@ function drawAsciiBackground(scrollY: number, baseAlpha: number, tintColor: stri
 let state: GameState;
 function init(): void {
   resize(); buildStars(W, H); buildAsciiBackground();
+  initParticleSystem();
   state = createInitialState(W, H);
   bindEvents();
   requestAnimationFrame(loop);
@@ -200,6 +206,7 @@ function loop(ts: number): void {
   update(state, dt);
   updateUmbrellaPhysics(state, dt);
   updateAsciiBackground(dt);
+  updateParticleSystem(dt);
   handleAudioEvents(state.audioEvents);
   draw(state);
   requestAnimationFrame(loop);
@@ -218,7 +225,7 @@ function updateUmbrellaPhysics(s: GameState, dt: number): void {
     const hudH = Math.max(10, Math.min(14, s.W / 70)) + 20;
     const startY = Math.max(hudH + 6, cloud.y);
 
-    const lines = getCloudLines(cloud);
+    const lines = getCloudLines(cloud, s.elapsed);
     const bottom = startY + lines.length * lineH;
 
     cloudCeiling = Math.min(cloudCeiling, bottom);
@@ -338,6 +345,7 @@ function drawBoot(s: GameState): void {
 // ─── Game world ───────────────────────────────────────────────────────────────
 function drawGame(s: GameState): void {
   drawAsciiBackground(s.bgStarOffset * 0.3, 0.04, '#1a3a2a');
+  if (SHOW_CLOUD_SOURCE_FIELD) drawSourceField();
   drawStars(s);
   drawClouds(s);
   drawGround(s);
@@ -372,77 +380,296 @@ function drawStars(s: GameState): void {
 }
 
 // Clouds
-function getCloudLines(c: Cloud): string[] {
-  if (c.type === 'rain') return [
-    "  .~~~~~~~~~~~~~~~~~~~~~~~~.",
-    " (   * R A I N  C L O U D *)",
-    "  `~~~~~~~~~~~~~~~~~~~~~~~~'",
-    "   | ' | ' | ' | ' |",
-  ];
-  if (c.type === 'snow') return [
-    "  .~~~~~~~~~~~~~~~~~~~~~~~~~~.",
-    " (   * S N O W  C L O U D *)",
-    "  `~~~~~~~~~~~~~~~~~~~~~~~~~~'",
-    "   * . * . * . * . *",
-  ];
-  return [
-    "  /\\/\\/\\/\\/\\/\\/\\/\\/\\",
-    " |   ## H A I L ##             |",
-    "  \\/\\/\\/\\/\\/\\/\\/\\/\\/",
-    "   O . O . O . O",
-  ];
+const CLOUD_CHARSET = ' .,-:;=+*#%@';
+function brightnessToCharsetIndex(brightness: number): number {
+  const adjusted = Math.sqrt(brightness);
+  return Math.min(Math.max(Math.floor(adjusted * (CLOUD_CHARSET.length - 1)), 0), CLOUD_CHARSET.length - 1);
+}
+const SHOW_CLOUD_SOURCE_FIELD = false;
+
+// Particle system for cloud source field
+const FIELD_OVERSAMPLE = 2;
+let FIELD_COLS = 0;
+let FIELD_ROWS = 0;
+const PARTICLE_N = 30;
+const SPRITE_R = 32;
+const ATTRACTOR_N = 3;
+const ATTRACTOR_R = 44;
+const ATTRACTOR_FORCE = 90;
+const FIELD_DECAY = 0.95;
+let CANVAS_W = 0;
+let CANVAS_H = 200;
+let FIELD_SCALE_X = 0;
+let FIELD_SCALE_Y = 0;
+
+interface Particle { x: number; y: number; vx: number; vy: number; phase: number; }
+interface Attractor { x: number; y: number; vx: number; vy: number; strength: number; }
+interface FieldStamp { radiusX: number; radiusY: number; sizeX: number; sizeY: number; values: Float32Array; }
+
+let particles: Particle[] = [];
+let attractors: Attractor[] = [];
+let brightnessField: Float32Array;
+let particleFieldStamp: FieldStamp;
+let attractorFieldStamp: FieldStamp;
+let spriteCache = new Map<number, HTMLCanvasElement>();
+
+function getSpriteCanvas(radius: number): HTMLCanvasElement {
+  const cached = spriteCache.get(radius);
+  if (cached !== undefined) return cached;
+  const canvas = document.createElement('canvas');
+  canvas.width = radius * 2;
+  canvas.height = radius * 2;
+  const context = canvas.getContext('2d');
+  if (context === null) throw new Error('sprite context not available');
+  const gradient = context.createRadialGradient(radius, radius, 0, radius, radius, radius);
+  gradient.addColorStop(0, 'rgba(255,255,255,0.6)');
+  gradient.addColorStop(0.4, 'rgba(255,255,255,0.2)');
+  gradient.addColorStop(1, 'rgba(255,255,255,0)');
+  context.fillStyle = gradient;
+  context.fillRect(0, 0, radius * 2, radius * 2);
+  spriteCache.set(radius, canvas);
+  return canvas;
 }
 
+function spriteAlphaAt(normalizedDistance: number): number {
+  if (normalizedDistance >= 1) return 0;
+  const t = 1 - normalizedDistance;
+  return t * t;
+}
+
+function createFieldStamp(radiusPx: number): FieldStamp {
+  const fieldRadiusX = radiusPx * FIELD_SCALE_X;
+  const fieldRadiusY = radiusPx * FIELD_SCALE_Y;
+  const radiusX = Math.ceil(fieldRadiusX);
+  const radiusY = Math.ceil(fieldRadiusY);
+  const sizeX = radiusX * 2 + 1;
+  const sizeY = radiusY * 2 + 1;
+  const values = new Float32Array(sizeX * sizeY);
+  for (let y = -radiusY; y <= radiusY; y++) {
+    for (let x = -radiusX; x <= radiusX; x++) {
+      const normalizedDistance = Math.sqrt((x / fieldRadiusX) ** 2 + (y / fieldRadiusY) ** 2);
+      values[(y + radiusY) * sizeX + x + radiusX] = spriteAlphaAt(normalizedDistance);
+    }
+  }
+  return { radiusX, radiusY, sizeX, sizeY, values };
+}
+
+function splatFieldStamp(centerX: number, centerY: number, stamp: FieldStamp): void {
+  const gridCenterX = Math.round(centerX * FIELD_SCALE_X);
+  const gridCenterY = Math.round(centerY * FIELD_SCALE_Y);
+  for (let y = -stamp.radiusY; y <= stamp.radiusY; y++) {
+    const gridY = gridCenterY + y;
+    if (gridY < 0 || gridY >= FIELD_ROWS) continue;
+    const fieldRowOffset = gridY * FIELD_COLS;
+    const stampRowOffset = (y + stamp.radiusY) * stamp.sizeX;
+    for (let x = -stamp.radiusX; x <= stamp.radiusX; x++) {
+      const gridX = gridCenterX + x;
+      if (gridX < 0 || gridX >= FIELD_COLS) continue;
+      const stampValue = stamp.values[stampRowOffset + x + stamp.radiusX]!;
+      if (stampValue === 0) continue;
+      const fieldIndex = fieldRowOffset + gridX;
+      brightnessField[fieldIndex] = Math.min(1, brightnessField[fieldIndex]! + stampValue);
+    }
+  }
+}
+
+function initParticleSystem(): void {
+  CANVAS_W = W;
+  CANVAS_H = 170;
+  FIELD_COLS = CANVAS_W * FIELD_OVERSAMPLE;
+  FIELD_ROWS = CANVAS_H * FIELD_OVERSAMPLE;
+  FIELD_SCALE_X = FIELD_COLS / CANVAS_W;
+  FIELD_SCALE_Y = FIELD_ROWS / CANVAS_H;
+  particles = Array.from({ length: PARTICLE_N }, () => ({
+    x: Math.random() * CANVAS_W,
+    y: Math.random() * CANVAS_H,
+    vx: (Math.random() - 0.5) * 0.2,
+    vy: (Math.random() - 0.5) * 0.2,
+    phase: Math.random() * Math.PI * 2,
+  }));
+  attractors = Array.from({ length: ATTRACTOR_N }, (_, idx) => ({
+    x: idx % 2 === 0 ? 0 : CANVAS_W,
+    y: CANVAS_H * 0.15 + (idx * 0.12) * CANVAS_H,
+    vx: idx % 2 === 0 ? 34 : -34,
+    vy: 0,
+    strength: 0.05 + Math.random() * 0.06,
+  }));
+  brightnessField = new Float32Array(FIELD_COLS * FIELD_ROWS);
+  particleFieldStamp = createFieldStamp(SPRITE_R);
+  attractorFieldStamp = createFieldStamp(ATTRACTOR_R);
+}
+
+function updateParticleSystem(dt: number): void {
+  for (const attractor of attractors) {
+    attractor.x += attractor.vx * dt;
+    if (attractor.x < 0) { attractor.x = 0; attractor.vx *= -1; }
+    if (attractor.x > CANVAS_W) { attractor.x = CANVAS_W; attractor.vx *= -1; }
+    const targetY = CANVAS_H * 0.18 + Math.sin(attractor.x * 0.01 + attractor.strength * 20) * CANVAS_H * 0.02;
+    attractor.y += (targetY - attractor.y) * Math.min(1, dt * 2);
+  }
+
+  for (const particle of particles) {
+    // Update phase for side-to-side movement
+    particle.phase += dt * 0.5;
+    // Horizontal oscillation
+    particle.vx = Math.sin(particle.phase) * 30;
+    // Small vertical drift
+    particle.vy = Math.cos(particle.phase) * 2 + (Math.random() - 0.5) * 0.5;
+
+    let ax = 0;
+    let ay = 0;
+    for (const attractor of attractors) {
+      const dx = attractor.x - particle.x;
+      const dy = attractor.y - particle.y;
+      const dist2 = dx * dx + dy * dy;
+      if (dist2 > 1) {
+        const force = attractor.strength / dist2;
+        ax += dx * force;
+        ay += dy * force;
+      }
+    }
+    particle.vx += ax * ATTRACTOR_FORCE * dt;
+    particle.vy += ay * ATTRACTOR_FORCE * dt;
+
+    const speed = Math.hypot(particle.vx, particle.vy);
+    if (speed > 70) {
+      const scale = 70 / speed;
+      particle.vx *= scale;
+      particle.vy *= scale;
+    }
+
+    particle.x += particle.vx * dt;
+    particle.y += particle.vy * dt;
+    // Wrap around
+    if (particle.x < 0) particle.x = CANVAS_W;
+    if (particle.x > CANVAS_W) particle.x = 0;
+    if (particle.y < 0) particle.y = CANVAS_H;
+    if (particle.y > CANVAS_H) particle.y = 0;
+  }
+
+  for (let i = 0; i < brightnessField.length; i++) {
+    brightnessField[i]! *= FIELD_DECAY;
+  }
+  for (const particle of particles) {
+    splatFieldStamp(particle.x, particle.y, particleFieldStamp);
+  }
+  for (const attractor of attractors) {
+    splatFieldStamp(attractor.x, attractor.y, attractorFieldStamp);
+  }
+}
+
+function drawSourceField(): void {
+  const barH = sz(W / 70, 10, 14) + 20;
+  const sourceX = 0;
+  const sourceY = barH + 5;
+  ctx.save();
+  ctx.fillStyle = 'rgba(0,0,0,0.8)';
+  ctx.fillRect(sourceX - 2, sourceY - 2, CANVAS_W + 4, CANVAS_H + 4);
+  ctx.fillStyle = '#000';
+  ctx.fillRect(sourceX, sourceY, CANVAS_W, CANVAS_H);
+  for (const particle of particles) {
+    const sprite = getSpriteCanvas(SPRITE_R);
+    ctx.drawImage(sprite, sourceX + particle.x - SPRITE_R, sourceY + particle.y - SPRITE_R);
+  }
+  for (const attractor of attractors) {
+    const sprite = getSpriteCanvas(ATTRACTOR_R);
+    ctx.drawImage(sprite, sourceX + attractor.x - ATTRACTOR_R, sourceY + attractor.y - ATTRACTOR_R);
+  }
+  ctx.restore();
+}
+
+function sampleBrightness(x: number, y: number): number {
+  const gridX = Math.floor(x * FIELD_SCALE_X);
+  const gridY = Math.floor(y * FIELD_SCALE_Y);
+  if (gridX < 0 || gridX >= FIELD_COLS || gridY < 0 || gridY >= FIELD_ROWS) return 0;
+  return brightnessField[gridY * FIELD_COLS + gridX]!;
+}
+
+function getCloudLinesFromField(c: Cloud, elapsed: number): string[] {
+  const width = 10;
+  const height = 4;
+  const offsetX = (c.id * 13) % (FIELD_COLS / FIELD_OVERSAMPLE - width);
+  const offsetY = (c.id * 7) % (FIELD_ROWS / FIELD_OVERSAMPLE - height);
+  const lines: string[] = [];
+  for (let row = 0; row < height; row++) {
+    let line = '';
+    for (let col = 0; col < width; col++) {
+      const brightness = sampleBrightness(offsetX + col, offsetY + row);
+      const index = brightnessToCharsetIndex(brightness);
+      line += CLOUD_CHARSET[index] || ' ';
+    }
+    lines.push(line);
+  }
+  return lines;
+}
+
+function makeCloudBody(width: number, charset: string, phase: number, filled: boolean): string {
+  let result = '';
+  for (let i = 0; i < width; i++) {
+    const theta = (i / width) * Math.PI * 4 + phase;
+    const intensity = 0.5 + 0.5 * Math.sin(theta + Math.cos(phase * 0.9));
+    const index = Math.min(Math.max(Math.floor(intensity * (charset.length - 1)), 0), charset.length - 1);
+    const ch = charset[index] || ' ';
+    result += filled && Math.sin(theta * 3 + phase) > 0.4 ? ch : ch;
+  }
+  return result;
+}
+
+function makeCloudDrip(charset: string, width: number, phase: number): string {
+  const dripChar = charset[Math.floor((phase * 7) % charset.length)] || '.';
+  const pieces: string[] = [];
+  const count = Math.min(6, Math.ceil(width / 6));
+  for (let i = 0; i < count; i++) {
+    const offset = Math.sin(phase + i * 1.3);
+    pieces.push(offset > 0 ? dripChar : charset[Math.floor((phase + i * 0.5) % charset.length)] || ' ');
+  }
+  return pieces.join(' ');
+}
+
+function getCloudLines(c: Cloud): string[];
+function getCloudLines(c: Cloud, elapsed: number): string[];
+function getCloudLines(c: Cloud, elapsed = 0): string[] {
+  const width = 20 + (c.id % 3) * 3 + (c.type === 'hail' ? 4 : 0);
+  const phase = elapsed * (c.type === 'rain' ? 1.2 : c.type === 'snow' ? 0.7 : 0.5) + c.id * 0.9;
+  const body = makeCloudBody(width, CLOUD_CHARSET, phase, false);
+  const fill = makeCloudBody(width, CLOUD_CHARSET, phase + 0.9, true);
+  const drip = makeCloudDrip(CLOUD_CHARSET, width, phase + 1.7);
+  return [
+    `   .${body}.`,
+    `  ( ${fill} )`,
+    `   \`${body}\``,
+    `    ${drip}`,
+  ];
+}
 function drawClouds(s: GameState): void {
   const hudH  = sz(W / 70, 10, 14) + 20;
   const size  = sz(W / 75, 9, 14);
   const lineH = Math.round(size * 1.35);
-  for (const cloud of s.clouds) {
-    const f = fnt(size, 700);
-    const lines = getCloudLines(cloud);
-    let maxW = 0;
-    for (const l of lines) maxW = Math.max(maxW, renderer.measureWidth(l, f));
-    cloud.artW = maxW;
-    const startX = cloud.x - maxW / 2;
-    const startY = Math.max(hudH + 6, cloud.y);
-    const flash = cloud.flashTimer > 0;
-    const flashStrength = Math.min(1, cloud.flashTimer / 0.2);
-    let bodyColor: string, accentColor: string, glowColor: string;
-    if (cloud.type === 'rain') {
-      bodyColor = flash ? '#4a7aaa' : '#2a5070'; accentColor = COLORS.rain; glowColor = flash ? COLORS.rain : '#3a6090';
-    } else if (cloud.type === 'snow') {
-      bodyColor = flash ? '#7090b0' : '#3a5065'; accentColor = COLORS.snow; glowColor = flash ? COLORS.snow : '#506080';
-    } else {
-      bodyColor = flash ? '#686868' : '#3a3a3a'; accentColor = COLORS.hail; glowColor = flash ? COLORS.hail : '#505050';
-    }
-    const glowBlur = flash ? 22 : 8;
-    const bodyAlpha = 0.9 + flashStrength * 0.1;
-    for (let i = 0; i < lines.length - 1; i++) {
-      const block = renderer.getBlock(lines[i], f, lineH);
-      renderer.drawBlock(ctx, block, startX, startY + i * lineH, {
-        color: bodyColor, shadowColor: glowColor, shadowBlur: glowBlur, alpha: bodyAlpha,
-      });
-    }
-    const dripLine = lines[lines.length - 1];
-    const dripY = startY + (lines.length - 1) * lineH;
-    const dripPulse = flash ? 1.0 : 0.6 + Math.sin(s.elapsed * 2.8 + cloud.id * 1.7) * 0.25;
-    const dripBlock = renderer.getBlock(dripLine, f, lineH);
-    renderer.drawBlock(ctx, dripBlock, startX, dripY, {
-      color: accentColor, shadowColor: accentColor, shadowBlur: flash ? 16 : 5,
-      alpha: Math.max(0.35, dripPulse),
-    });
-    if (flash) {
-      const dropF = fnt(size);
-      const dropY = dripY + lineH;
-      const dropGlyph = cloud.type === 'rain' ? '|' : cloud.type === 'snow' ? '*' : '\u25cf';
-      for (let d = 0; d < 4; d++) {
-        const dx = startX + (maxW / 5) * (d + 1);
-        const block = renderer.getBlock(dropGlyph, dropF, lineH);
-        renderer.drawBlock(ctx, block, dx, dropY, {
-          color: accentColor, shadowColor: accentColor, shadowBlur: 10, align: 'center', alpha: flashStrength * 0.95,
-        });
+  const f = cloudFnt(size, 700);
+  const charW = renderer.measureWidth('M', f);
+  const cols = Math.max(1, Math.floor(CANVAS_W / charW));
+  const rows = Math.max(1, Math.floor(CANVAS_H / lineH));
+  const startY = hudH + 5; // align with the source field
+  const startX = 0;
+  const fieldCellW = CANVAS_W / cols;
+  const fieldCellH = CANVAS_H / rows;
+  for (let r = 0; r < rows; r++) {
+    let line = '';
+    for (let c = 0; c < cols; c++) {
+      const fx = Math.min(CANVAS_W - 1, (c + 0.5) * fieldCellW);
+      const fy = Math.min(CANVAS_H - 1, (r + 0.5) * fieldCellH);
+      const brightness = sampleBrightness(fx, fy);
+      if (brightness < 0.05) {
+        line += ' ';
+      } else {
+        const index = brightnessToCharsetIndex(brightness);
+        line += CLOUD_CHARSET[index] || ' ';
       }
     }
+    const block = renderer.getBlock(line, f, lineH);
+    renderer.drawBlock(ctx, block, startX, startY + r * lineH, {
+      color: '#2a5070', shadowColor: '#3a6090', shadowBlur: 8, alpha: 0.9,
+    });
   }
 }
 

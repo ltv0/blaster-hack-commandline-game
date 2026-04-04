@@ -78,6 +78,7 @@ export interface Cloud {
   x: number;          // centre x
   y: number;          // centre y (stays in top strip)
   vx: number;         // horizontal drift speed (px/s)
+  vy: number;         // vertical drift speed (px/s)
   type: 'rain' | 'snow' | 'hail';
   // pulsing flash when it emits a hazard
   flashTimer: number;
@@ -368,7 +369,7 @@ function computeCloudBottom(state: Pick<GameState, 'W' | 'clouds'>, cloud: Cloud
   const hudH = Math.max(10, Math.min(14, state.W / 70)) + 20;
   const lineH = computeCloudLineH(state.W);
   const startY = Math.max(hudH + 6, cloud.y);
-  return startY + 5 * lineH;
+  return startY + 8 * lineH;
 }
 
 export function computeUmbrellaYBounds(state: Pick<GameState, 'W' | 'H' | 'clouds'>): { minY: number; maxY: number } {
@@ -406,11 +407,13 @@ function spawnCloud(state: GameState, x: number, type: 'rain' | 'snow' | 'hail')
   // Clouds drift at different speeds by type: rain drifts faster, hail sluggish
   const baseSpeed = type === 'rain' ? 22 : type === 'snow' ? 14 : 10;
   const speed     = (baseSpeed + Math.random() * 12) * (Math.random() < 0.5 ? 1 : -1);
+  const vy        = (Math.random() - 0.5) * 8; // small vertical drift
   state.clouds.push({
     id: state.cloudIdCounter++,
     x,
     y: cloudY,
     vx: speed,
+    vy,
     type,
     flashTimer: 0,
     artW: 0,
@@ -457,11 +460,11 @@ function maintainClouds(state: GameState): void {
 function spawnHazardFromCloud(state: GameState, cloud: Cloud): void {
   const { difficultyLevel: level, elapsed } = state;
 
-  // X spread within the cloud body
-  const spread = Math.max(cloud.artW * 0.4, 18);
-  const x = cloud.x + (Math.random() - 0.5) * spread;
-  // Y just below the cloud art (cloud.y is top of art, add ~artH approximation)
-  const y = cloud.y + 28 + Math.random() * 8;
+  // Spawn within the cloud's ASCII art area
+  const lineH = computeCloudLineH(state.W);
+  const artH = 8 * lineH;
+  const x = cloud.x + (Math.random() - 0.5) * cloud.artW;
+  const y = cloud.y + Math.random() * artH;
 
   const glyphs = HAZARD_GLYPHS[cloud.type];
   const glyph  = glyphs[Math.floor(Math.random() * glyphs.length)];
@@ -950,11 +953,15 @@ function updateUmbrellaSlides(state: GameState, dt: number): void {
 }
 
 function updateClouds(state: GameState, dt: number): void {
-  const { W, difficultyLevel: level } = state;
+  const { W, H, difficultyLevel: level } = state;
+  const minCloudY = H * 0.05;
+  const maxCloudY = H * 0.15;
   for (let i = state.clouds.length - 1; i >= 0; i--) {
     const c = state.clouds[i];
     c.x += c.vx * dt;
     c.x += state.windX * 0.04 * dt;
+    c.y += c.vy * dt;
+    c.y = Math.max(minCloudY, Math.min(maxCloudY, c.y));
     const pad = 140;
     const exitedRight = c.vx > 0 && c.x > W + pad;
     const exitedLeft = c.vx < 0 && c.x < -pad;
