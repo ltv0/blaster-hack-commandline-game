@@ -17,5 +17,4 @@ app.innerHTML = `
   </div>
 `
 
-const canvas = document.querySelector<HTMLCanvasElement>('#game')!
-startGameApp(canvas)
+startGameApp()

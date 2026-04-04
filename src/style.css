@@ -50,6 +50,12 @@ body {
 }
 
 canvas {
+  display: block;
+  border: 1px solid #14532d;
+  background: #0a0f0d;
+}
+
+canvas {
   width: 100%;
   height: auto;
   display: block;

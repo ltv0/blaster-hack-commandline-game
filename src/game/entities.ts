@@ -20,3 +20,11 @@ export type Drop = {
   speed: number
   size: number
 }
+
+export type RainParticle = {
+  x: number
+  y: number
+  vx: number
+  vy: number
+  char: string
+}

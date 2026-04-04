@@ -1,196 +1,255 @@
-import type { Drop, Player, Umbrella } from './entities'
+import { PretextRenderer } from '../pretext-renderer'
 import { setupUmbrellaDrag } from './input'
 import { spawnRain, updateRain } from './weather'
+import type { Player, Umbrella, RainParticle } from './entities'
+import { TerminalInput } from '../ui/terminal'
 
-export function startGameApp(canvas: HTMLCanvasElement) {
+interface Particle {
+  x: number
+  y: number
+  vx: number
+  vy: number
+  life: number
+  maxLife: number
+  char: string
+}
+
+export function startGameApp() {
+  const canvas = document.querySelector<HTMLCanvasElement>('#game')!
   const ctx = canvas.getContext('2d')!
+  const terminalRoot = document.querySelector<HTMLDivElement>('#terminal')!
 
-  // Game state
+  // ===== PREPARE PHASE =====
+  // Use PretextRenderer like Pretext Breaker for consistent text rendering
+  const renderer = new PretextRenderer()
+
+  const FONT_GAME = '16px monospace'
+  const FONT_HUD = '14px monospace'
+
+  // Prepare all game text blocks once at startup (like Pretext Breaker)
+  const cloudBlock = renderer.getBlock('☁ cloud ☁', FONT_GAME, 18, 200)
+  const runnerBlock = renderer.getBlock(`  O
+ /|\\
+ / \\`, FONT_GAME, 18)
+  const umbrellaBlock = renderer.getBlock(`  _
+ / \\
+|   |
+ \\ /
+  |`, FONT_GAME, 18)
+  const groundBlock = renderer.getBlock('________________________________________________________________________________', FONT_GAME, 18)
+  const titleBlock = renderer.getBlock('━ UMBRELLA RUN ━', FONT_GAME, 18)
+
+  // Prepare rain char blocks (not used anymore, but keep for now)
+  const rainChars = '+=vnnoo00FFYLZhP88JabcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789!@#$%^&*()'
+
+  // ===== GAME STATE =====
   let started = false
   let score = 0
   let lastTime = 0
-  let drop = 0.5
+  const particles: Particle[] = []
 
   const player: Player = {
-    x: canvas.width / 2 - 8,
-    y: canvas.height - 100,
-    width: 28,
-    height: 30,
+    x: 760,
+    y: 400,
+    width: runnerBlock.width,
+    height: runnerBlock.height,
     health: 100,
   }
 
   const umbrella: Umbrella = {
-    x: canvas.width / 2 - 40,
-    y: canvas.height / 2 - 40,
-    width: 80,
-    height: 60,
+    x: 700,
+    y: 340,
+    width: umbrellaBlock.width,
+    height: umbrellaBlock.height,
     dragging: false,
   }
 
-  let raindrops: Drop[] = spawnRain(20, canvas.width)
-
-  // Set up input
   setupUmbrellaDrag(canvas, umbrella)
 
-  // Keyboard start
-  window.addEventListener('keydown', (event) => {
-    if (event.key === 'Enter' && !started) {
+  const terminal = new TerminalInput(terminalRoot, (command: string) => {
+    if (command === 'run' || command === 'start') {
       started = true
       player.health = 100
       score = 0
+      particles.length = 0
+      terminal.print('> run started')
+      terminal.print('> protect the runner from rain')
+      return
     }
-    if (event.key === 'r' && player.health <= 0) {
-      started = true
-      player.health = 100
-      score = 0
-      raindrops = spawnRain(20, canvas.width)
+
+    if (command === 'help') {
+      terminal.print('> commands: run, start, help, clear')
+      return
+    }
+
+    if (command === 'clear') {
+      terminal.clear()
+      terminal.print('> terminal cleared')
+      return
+    }
+
+    if (command.length > 0) {
+      terminal.print(`> unknown command: ${command}`)
     }
   })
 
-  function drawClouds() {
-    ctx.fillStyle = '#4b5563'
-    ctx.beginPath()
-    ctx.arc(100, 60, 40, 0, Math.PI * 2)
-    ctx.arc(150, 40, 50, 0, Math.PI * 2)
-    ctx.arc(200, 60, 40, 0, Math.PI * 2)
-    ctx.fill()
+  terminal.attach()
 
-    ctx.beginPath()
-    ctx.arc(canvas.width - 150, 80, 40, 0, Math.PI * 2)
-    ctx.arc(canvas.width - 100, 60, 50, 0, Math.PI * 2)
-    ctx.arc(canvas.width - 50, 80, 40, 0, Math.PI * 2)
-    ctx.fill()
+  // ===== COLLISION & UPDATE =====
+
+  function spawnParticles(x: number, y: number, char: string, count: number) {
+    const chars = char.split('')
+    for (let i = 0; i < count; i++) {
+      particles.push({
+        x,
+        y,
+        vx: (Math.random() - 0.5) * 200,
+        vy: (Math.random() - 0.5) * 200 - 50,
+        life: 0.5 + Math.random() * 0.5,
+        maxLife: 0.5 + Math.random() * 0.5,
+        char: chars[Math.floor(Math.random() * chars.length)],
+      })
+    }
   }
 
-  function drawRain() {
-    ctx.fillStyle = '#60a5fa'
-    for (const drop of raindrops) {
-      ctx.fillRect(drop.x, drop.y, drop.size / 4, drop.size)
+  function updateParticles(dt: number) {
+    for (let i = particles.length - 1; i >= 0; i--) {
+      const p = particles[i]
+      p.x += p.vx * dt
+      p.y += p.vy * dt
+      p.vy += 150 * dt
+      p.life -= dt
+
+      if (p.life <= 0) {
+        particles.splice(i, 1)
+      }
     }
   }
 
   function update(dt: number) {
-    if (!started) return
+    if (!started || player.health <= 0) return
 
-    // Update rain
-    updateRain(raindrops, dt, canvas.width, canvas.height)
-
-    // Score increases
     score += dt * 10
+    player.x -= 12 * dt
+    if (player.x < 120) player.x = 760
 
-    // Increase difficulty
-    drop = Math.min(0.5 + score / 500, 2)
+    updateParticles(dt)
+  }
 
-    // Spawn new rain drops
-    if (Math.random() < drop * dt) {
-      raindrops.push({
-        x: Math.random() * canvas.width,
-        y: -20,
-        speed: 180 + Math.random() * 180,
-        size: 8 + Math.random() * 8,
+  // ===== RENDER PHASE =====
+  // Use PretextRenderer.drawBlock() like Pretext Breaker
+
+  function draw() {
+    // Clear
+    ctx.fillStyle = '#2f3542'
+    ctx.fillRect(0, 0, canvas.width, canvas.height)
+
+    // Title
+    renderer.drawBlock(ctx, titleBlock, 300, 15, {
+      color: '#86efac',
+    })
+
+    // Clouds (animated)
+    const cloudOffset = Math.sin(Date.now() * 0.001) * 10
+    renderer.drawBlock(ctx, cloudBlock, 80 + cloudOffset, 40, {
+      color: '#9ca3af',
+    })
+    renderer.drawBlock(ctx, cloudBlock, 300 - cloudOffset * 0.7, 60, {
+      color: '#9ca3af',
+    })
+    renderer.drawBlock(ctx, cloudBlock, 550 + cloudOffset * 0.5, 45, {
+      color: '#9ca3af',
+    })
+
+    // Rain ASCII grid
+    const time = Date.now() * 0.001
+    const rainFonts = ['16px Georgia', 'bold 16px Georgia', 'italic 16px Georgia', 'bold italic 16px Georgia']
+    for (let y = 0; y < canvas.height; y += 36) {
+      for (let x = 0; x < canvas.width; x += 32) {
+        const noise = (Math.sin(time + x * 0.01) + Math.cos(time * 0.7 + y * 0.02) + Math.sin(time * 0.3 + x * 0.005 + y * 0.01)) * 0.33 + 0.5
+        const charIndex = Math.floor(Math.max(0, Math.min(rainChars.length - 1, noise * rainChars.length)))
+        const char = rainChars[charIndex]
+        const fontIndex = (x * 31 + y * 37 + Math.floor(time * 10)) % rainFonts.length
+        const font = rainFonts[fontIndex]
+        ctx.font = font
+        ctx.fillStyle = '#ff4757'
+        ctx.fillText(char, x, y)
+      }
+    }
+
+    // Ground
+    renderer.drawBlock(ctx, groundBlock, 0, canvas.height - groundBlock.height, {
+      color: '#4a5568',
+    })
+
+    // Player
+    if (player.health > 0) {
+      const healthPercent = Math.max(0, player.health / 100)
+      const playerColor = healthPercent > 0.5 ? '#facc15' : healthPercent > 0.2 ? '#f59e0b' : '#f87171'
+
+      renderer.drawBlock(ctx, runnerBlock, player.x, player.y, {
+        color: playerColor,
+      })
+
+      // Health bar
+      const barLength = 10
+      const filledLength = Math.ceil(barLength * healthPercent)
+      const healthBar = '[' + '█'.repeat(filledLength) + '░'.repeat(barLength - filledLength) + ']'
+      const healthBarBlock = renderer.getBlock(healthBar, '11px monospace', 12)
+      renderer.drawBlock(ctx, healthBarBlock, player.x, player.y - 25, {
+        color: playerColor,
       })
     }
 
-    // Check collisions with umbrella
-    for (let i = raindrops.length - 1; i >= 0; i--) {
-      const drop = raindrops[i]
-      const hitUmbrella =
-        drop.x >= umbrella.x &&
-        drop.x <= umbrella.x + umbrella.width &&
-        drop.y >= umbrella.y &&
-        drop.y <= umbrella.y + umbrella.height
+    // Umbrella
+    const umbrellaColor = umbrella.dragging ? '#fbbf24' : '#f87171'
+    renderer.drawBlock(ctx, umbrellaBlock, umbrella.x, umbrella.y, {
+      color: umbrellaColor,
+    })
 
-      if (hitUmbrella) {
-        raindrops.splice(i, 1)
-        continue
-      }
-
-      // Check collision with player
-      const hitPlayer =
-        drop.x >= player.x &&
-        drop.x <= player.x + player.width &&
-        drop.y >= player.y &&
-        drop.y <= player.y + player.height
-
-      if (hitPlayer) {
-        player.health -= 10 * dt
-        raindrops.splice(i, 1)
-      }
-    }
-  }
-
-  function drawGround() {
-    ctx.fillStyle = '#1f3b2d'
-    ctx.fillRect(0, 450, canvas.width, 90)
-
-    ctx.fillStyle = '#2f855a'
-    for (let i = 0; i < canvas.width; i += 80) {
-      ctx.fillRect((i - (score * 4) % 80), 430, 40, 20)
-    }
-  }
-
-  function drawPlayer() {
-    ctx.fillStyle = '#f5d08a'
-    ctx.fillRect(player.x + 8, player.y, 12, 12)
-
-    ctx.fillStyle = '#e5e7eb'
-    ctx.fillRect(player.x + 8, player.y + 12, 12, 18)
-
-    ctx.strokeStyle = '#e5e7eb'
-    ctx.lineWidth = 3
-    ctx.beginPath()
-    ctx.moveTo(player.x + 12, player.y + 30)
-    ctx.lineTo(player.x + 6, player.y + 42)
-    ctx.moveTo(player.x + 16, player.y + 30)
-    ctx.lineTo(player.x + 22, player.y + 42)
-    ctx.stroke()
-  }
-
-  function drawUmbrella() {
-    ctx.fillStyle = '#f87171'
-    ctx.beginPath()
-    ctx.moveTo(umbrella.x, umbrella.y + umbrella.height)
-    ctx.quadraticCurveTo(
-      umbrella.x + umbrella.width / 2,
-      umbrella.y - 28,
-      umbrella.x + umbrella.width,
-      umbrella.y + umbrella.height,
-    )
-    ctx.fill()
-
-    ctx.strokeStyle = '#f3f4f6'
-    ctx.lineWidth = 3
-    ctx.beginPath()
-    ctx.moveTo(umbrella.x + umbrella.width / 2, umbrella.y)
-    ctx.lineTo(umbrella.x + umbrella.width / 2, umbrella.y + 60)
-    ctx.stroke()
-  }
-
-  function drawHud() {
-    ctx.fillStyle = '#00ff9c'
-    ctx.font = '16px monospace'
-    ctx.fillText(`score: ${Math.floor(score)}`, 20, 24)
-    ctx.fillText(`health: ${Math.max(0, Math.floor(player.health))}`, 20, 46)
-
-    if (!started) {
-      ctx.fillText('press ENTER to start', 360, 260)
+    // Particles
+    for (const p of particles) {
+      const alpha = p.life / p.maxLife
+      ctx.globalAlpha = alpha
+      const particleBlock = renderer.getBlock(p.char, '12px monospace', 12)
+      renderer.drawBlock(ctx, particleBlock, p.x, p.y, {
+        color: '#7dd3fc',
+      })
+      ctx.globalAlpha = 1
     }
 
+    // HUD
+    const scoreText = `SCORE: ${Math.floor(score).toString().padEnd(7, ' ')}`
+    const healthText = `HEALTH: ${Math.max(0, Math.floor(player.health)).toString().padEnd(3, ' ')}%`
+
+    const scoreDisplayBlock = renderer.getBlock(scoreText, FONT_HUD, 16)
+    const healthDisplayBlock = renderer.getBlock(healthText, FONT_HUD, 16)
+
+    renderer.drawBlock(ctx, scoreDisplayBlock, canvas.width - 250, 20, {
+      color: '#00ff9c',
+    })
+
+    renderer.drawBlock(ctx, healthDisplayBlock, canvas.width - 250, 45, {
+      color: player.health > 50 ? '#00ff9c' : player.health > 20 ? '#f59e0b' : '#f87171',
+    })
+
+    // Game Over
     if (player.health <= 0) {
-      ctx.fillText('game over', 430, 260)
+      ctx.fillStyle = 'rgba(0, 0, 0, 0.6)'
+      ctx.fillRect(0, 0, canvas.width, canvas.height)
+
+      const gameOverText = `GAME OVER - Final Score: ${Math.floor(score)}`
+      const gameOverDisplayBlock = renderer.getBlock(gameOverText, FONT_GAME, 18)
+
+      renderer.drawBlock(ctx, gameOverDisplayBlock, canvas.width / 2 - gameOverDisplayBlock.width / 2, canvas.height / 2 - 20, {
+        color: '#f87171',
+      })
+
+      const restartBlock = renderer.getBlock('[Type "run" to restart]', '12px monospace', 14)
+      renderer.drawBlock(ctx, restartBlock, canvas.width / 2 - restartBlock.width / 2, canvas.height / 2 + 40, {
+        color: '#d1fae5',
+      })
     }
-  }
-
-  function draw() {
-    ctx.fillStyle = '#0a0f0d'
-    ctx.fillRect(0, 0, canvas.width, canvas.height)
-
-    drawClouds()
-    drawRain()
-    drawGround()
-    drawPlayer()
-    drawUmbrella()
-    drawHud()
   }
 
   function loop(timestamp: number) {
