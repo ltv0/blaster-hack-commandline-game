@@ -818,7 +818,16 @@ function updatePlaying(state: GameState, dt: number): void {
           for (let s = 0; s < slideCount; s++) {
             // Slightly vary hit x so multiple drops look natural
             const jitter = (Math.random() - 0.5) * 14;
-            spawnUmbrellaSlide(state, h.x + jitter, h.y, h.type);
+            // Always spawn slide at canopy surface, not at falling hazard's y
+            const { umbrellaArtStartX, umbrellaArtWidth, umbrellaArtStartY, umbrellaArtLineH } = state;
+            const artCenterX = umbrellaArtStartX + umbrellaArtWidth / 2;
+            const halfW = umbrellaArtWidth / 2;
+            const peakY = umbrellaArtStartY + 1 * umbrellaArtLineH;
+            const rimY = umbrellaArtStartY + (UMBRELLA_CANOPY_LINES - 1) * umbrellaArtLineH;
+            const hitX = h.x + jitter;
+            const xFrac = Math.min(1, Math.abs(hitX - artCenterX) / halfW);
+            const surfaceY = peakY + xFrac * (rimY - peakY);
+            spawnUmbrellaSlide(state, hitX, surfaceY, h.type);
           }
           // Small minimal splash so impact is still readable
           spawnSplash(state, h.x, h.y, h.type, false);

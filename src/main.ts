@@ -1056,7 +1056,11 @@ function drawGameOver(s: GameState): void {
   if (s.combo > 1) renderer.drawText(ctx, `BEST COMBO: \xd7${s.combo}`, fnt(size - 1), lh, cx, boxY + 126, { color: COLORS.cyan, align: 'center' });
   renderer.drawHRule(ctx, '\u2550', fnt(size - 2), lh, boxX + 14, boxY + 154, boxW - 28, { color: COLORS.dimGreen, alpha: 0.6 });
   if (Math.floor(Date.now() / 500) % 2 === 0) {
-    renderer.drawText(ctx, '> Press R / ENTER / tap to restart', fnt(size - 1, 700), lh, cx, boxY + 168, { color: COLORS.green, shadowColor: COLORS.green, shadowBlur: 8, align: 'center' });
+    // Center the prompt between the green line and the SURVIVED line
+    const survivedY = boxY + 104;
+    const greenLineY = boxY + 154;
+    const promptY = survivedY + (greenLineY - survivedY) / 2;
+    renderer.drawText(ctx, '> Press R / ENTER / tap to restart', fnt(size - 1, 700), lh, cx, promptY, { color: COLORS.green, shadowColor: COLORS.green, shadowBlur: 8, align: 'center' });
   }
 }
 
