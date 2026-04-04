@@ -7,6 +7,7 @@ import {
   handlePointerMove,
   handlePointerDown,
   handlePointerUp,
+  computeUmbrellaYBounds,
   COLORS,
   type GameState,
   type AudioEvent,
@@ -40,6 +41,8 @@ function resize(): void {
     state.travelerY = baseY;
     state.travelerBaseY = baseY;
     state.umbrellaW = Math.max(80, Math.min(220, W * 0.18));
+    state.umbrellaVY = 0;
+    state._umbrellaActualY = state.umbrellaY;
     buildAsciiBackground();
   }
 }
@@ -127,7 +130,7 @@ let bgCells: BgCell[] = [];
 let bgCols = 0; let bgRows = 0; let bgCellW = 0; let bgCellH = 0; let bgFont = '';
 
 function buildAsciiBackground(): void {
-  const size = sz(W / 95, 8, 11);
+  const size = sz(W / 95, 30, 30);
   bgFont = fnt(size);
   bgCellW = renderer.measureWidth('M', bgFont) || 8;
   bgCellH = size * 1.3;
@@ -195,10 +198,90 @@ function loop(ts: number): void {
   lastTime = ts;
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
   update(state, dt);
+  updateUmbrellaPhysics(state, dt);
   updateAsciiBackground(dt);
   handleAudioEvents(state.audioEvents);
   draw(state);
   requestAnimationFrame(loop);
+}
+
+function updateUmbrellaPhysics(s: GameState, dt: number): void {
+  if (s.phase !== 'playing') return;
+
+  let cloudCeiling = Infinity;
+  let pressureForce = 0;
+
+  for (const cloud of s.clouds) {
+    const size = Math.max(9, Math.min(14, s.W / 75));
+    const lineH = Math.round(size * 1.35);
+
+    const hudH = Math.max(10, Math.min(14, s.W / 70)) + 20;
+    const startY = Math.max(hudH + 6, cloud.y);
+
+    const lines = getCloudLines(cloud);
+    const bottom = startY + lines.length * lineH;
+
+    cloudCeiling = Math.min(cloudCeiling, bottom);
+
+    if (s._umbrellaActualY !== undefined) {
+      const dist = s._umbrellaActualY - bottom;
+      const influence = 120;
+
+      if (dist < influence) {
+        const strength = 1800;
+        const falloff = 1 - Math.max(0, dist) / influence;
+        pressureForce += strength * falloff;
+      }
+    }
+  }
+
+  const umbrellaBounds = computeUmbrellaYBounds(s);
+  const minY = umbrellaBounds.minY;
+  const maxY = umbrellaBounds.maxY;
+
+  const stiffness = 700;
+  const damping = 14;
+  const mass = 1;
+
+  const targetY = s.umbrellaY;
+
+  if (s._umbrellaActualY === undefined) {
+    s._umbrellaActualY = s.umbrellaY;
+  }
+
+  if (!Number.isFinite(s._umbrellaActualY)) {
+    s._umbrellaActualY = s.umbrellaY;
+  }
+  if (!Number.isFinite(s.umbrellaY)) {
+    s.umbrellaY = Math.min(maxY, Math.max(minY, s.H * 0.55));
+  }
+
+  const y = s._umbrellaActualY;
+  const v = s.umbrellaVY;
+
+  const springForce = -stiffness * (y - targetY);
+  const dampingForce = -damping * v;
+  const totalForce = springForce + dampingForce + pressureForce;
+  const accel = totalForce / mass;
+
+  let newV = v + accel * dt;
+  let newY = y + newV * dt;
+
+  if (newY < minY) {
+    const penetration = minY - newY;
+    newY = minY + penetration * 0.25;
+    newV *= -0.25;
+  }
+
+  if (newY > maxY) {
+    const penetration = newY - maxY;
+    newY = maxY - penetration * 0.25;
+    newV *= -0.25;
+  }
+
+  s._umbrellaActualY = newY;
+  s.umbrellaVY = newV;
+  s.umbrellaY = newY;
 }
 
 // ─── Draw dispatcher ──────────────────────────────────────────────────────────
@@ -224,7 +307,7 @@ function drawBoot(s: GameState): void {
   drawAsciiBackground(0, 0.055, COLORS.dimGreen);
   drawScanlines(0.04);
 
-  renderer.drawText(ctx, '[ BLASTER HACK ]', fnt(size + 5, 700), lh, cx, startY - lh * 2.2, {
+  renderer.drawText(ctx, '[ WEATHER REPORT ]', fnt(size + 5, 700), lh, cx, startY - lh * 2.2, {
     color: COLORS.green, shadowColor: COLORS.green, shadowBlur: 20, align: 'center',
   });
   renderer.drawHRule(ctx, '\u2550', fnt(size - 1), lh, indent, startY - lh * 0.7,
@@ -258,7 +341,6 @@ function drawGame(s: GameState): void {
   drawStars(s);
   drawClouds(s);
   drawGround(s);
-  drawWindIndicator(s);
   drawTraveler(s);
   drawHazards(s);
   drawParticles(s);
@@ -367,7 +449,7 @@ function drawClouds(s: GameState): void {
 function travelerGroundY(s: GameState): number { return Math.round(s.H * 0.84); }
 function drawGround(s: GameState): void {
   const groundY = travelerGroundY(s);
-  const size = sz(W / 80, 9, 12);
+  const size = sz(W / 60, 9, 14);
   const f = fnt(size);
   const lineH = Math.ceil(size * 1.35);
 
@@ -406,19 +488,6 @@ function drawGround(s: GameState): void {
     let dx = 0;
     while (dx < W) { renderer.drawBlock(ctx, ruleBlock, dx, groundY - 1, { color: COLORS.green, alpha: 0.45 }); dx += ruleW; }
   }
-}
-
-// Wind
-function drawWindIndicator(s: GameState): void {
-  if (Math.abs(s.windX) < 5) return;
-  const dir = s.windX > 0 ? '\u00bb\u00bb\u00bb' : '\u00ab\u00ab\u00ab';
-  const speed = Math.abs(s.windX).toFixed(0);
-  const size = sz(W / 90, 8, 11);
-  const alpha = Math.min(0.65, Math.abs(s.windX) / 70);
-  const groundY = travelerGroundY(s);
-  renderer.drawText(ctx, `WIND ${dir} ${speed}px/s`, fnt(size, 700), size * 1.3, 14, groundY + 5, {
-    color: COLORS.cyan, shadowColor: COLORS.cyan, shadowBlur: 6, alpha,
-  });
 }
 
 // Traveler
@@ -581,16 +650,49 @@ function drawUmbrellaSlides(s: GameState): void {
   const size = sz(W / 120, 6, 9);
   const f = fnt(size, 700);
   const lh = size * 1.3;
+
+  // Keep slide-phase drops visually glued to the currently rendered canopy.
+  const hasUmbrellaGeom = s.umbrellaArtWidth > 0 && s.umbrellaArtLineH > 0;
+  const artCenterX = s.umbrellaArtStartX + s.umbrellaArtWidth / 2;
+  const halfW = s.umbrellaArtWidth / 2;
+  const peakY = s.umbrellaArtStartY + s.umbrellaArtLineH;
+  const rimY = s.umbrellaArtStartY + (UMBRELLA_CANOPY.length - 1) * s.umbrellaArtLineH;
+
   for (const slide of s.umbrellaSlides) {
     const fadeAlpha = Math.max(0, slide.life * slide.alpha);
     if (fadeAlpha <= 0) continue;
+
+    let drawX = slide.x;
+    let drawY = slide.y;
+
+    if (slide.phase === 'slide' && hasUmbrellaGeom && halfW > 0) {
+      const clampedX = Math.max(s.umbrellaArtStartX, Math.min(s.umbrellaArtStartX + s.umbrellaArtWidth, slide.x));
+      const xFrac = Math.min(1, Math.abs(clampedX - artCenterX) / halfW);
+      drawX = clampedX;
+      drawY = peakY + xFrac * (rimY - peakY);
+    }
+
     if (slide.phase === 'slide') {
       const g = slide.dir === -1 ? '\\' : '/';
       const block = renderer.getBlock(g, f, lh);
-      renderer.drawBlock(ctx, block, slide.x, slide.y, { color: COLORS.rain, shadowColor: COLORS.rain, shadowBlur: 3, align: 'center', verticalAlign: 'middle', alpha: fadeAlpha });
+      renderer.drawBlock(ctx, block, drawX, drawY, {
+        color: COLORS.rain,
+        shadowColor: COLORS.rain,
+        shadowBlur: 3,
+        align: 'center',
+        alpha: fadeAlpha,
+      });
     } else {
-      renderer.drawBlock(ctx, renderer.getBlock('|', f, lh), slide.x, slide.y, { color: COLORS.rain, align: 'center', verticalAlign: 'middle', alpha: fadeAlpha });
-      renderer.drawBlock(ctx, renderer.getBlock('\u00b7', f, lh), slide.x, slide.y - size * 1.4, { color: COLORS.rainDim, align: 'center', verticalAlign: 'middle', alpha: fadeAlpha * 0.5 });
+      renderer.drawBlock(ctx, renderer.getBlock('|', f, lh), drawX, drawY, {
+        color: COLORS.rain,
+        align: 'center',
+        alpha: fadeAlpha,
+      });
+      renderer.drawBlock(ctx, renderer.getBlock('\u00b7', f, lh), drawX, drawY - size * 1.2, {
+        color: COLORS.rainDim,
+        align: 'center',
+        alpha: fadeAlpha * 0.5,
+      });
     }
   }
 }
@@ -666,7 +768,7 @@ function drawHUD(s: GameState): void {
 
 function drawScanlines(alpha: number): void {
   ctx.save(); ctx.globalAlpha = alpha; ctx.fillStyle = '#000000';
-  for (let y = 0; y < H; y += 3) ctx.fillRect(0, y, W, 1);
+  for (let y = 0; y < H; y += 12) ctx.fillRect(0, y, W, 1);
   ctx.restore();
 }
 

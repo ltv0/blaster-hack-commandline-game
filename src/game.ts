@@ -24,6 +24,7 @@ export interface Particle {
   maxLife: number;
   glyph: string;
   color: string;
+  type: 'rain' | 'snow' | 'hail';
 }
 
 export interface ScorePopup {
@@ -109,6 +110,8 @@ export interface GameState {
   // umbrella
   umbrellaX: number;
   umbrellaY: number;
+  umbrellaVY: number;
+  _umbrellaActualY?: number;
   umbrellaW: number;
   umbrellaH: number;
 
@@ -260,6 +263,7 @@ export function createInitialState(W: number, H: number): GameState {
 
     umbrellaX: W * 0.38,
     umbrellaY: H * 0.55,
+    umbrellaVY: 0,
     umbrellaW: computeUmbrellaW(W),
     umbrellaH: 14,
 
@@ -320,6 +324,10 @@ function computeUmbrellaW(W: number): number {
   return Math.max(80, Math.min(220, W * 0.18));
 }
 
+function computeUmbrellaLineH(W: number): number {
+  return Math.round(Math.max(7, Math.min(11, W / 100)) * 1.15);
+}
+
 function computeGroundY(state: GameState): number {
   return Math.round(state.H * 0.84);
 }
@@ -327,6 +335,40 @@ function computeGroundY(state: GameState): number {
 function computeTravelerBaseY(state: GameState): number {
   const travelerSize = Math.max(14, Math.min(22, state.W / 40));
   return computeGroundY(state) - travelerSize * 2.95;
+}
+
+const UMBRELLA_CANOPY_LINES = 6;
+const UMBRELLA_HANDLE_LINES = 8;
+const UMBRELLA_FOOT_LINES = 4;
+
+function computeCloudLineH(W: number): number {
+  return Math.round(Math.max(9, Math.min(14, W / 75)) * 1.35);
+}
+
+function computeCloudBottom(state: Pick<GameState, 'W' | 'clouds'>, cloud: Cloud): number {
+  const hudH = Math.max(10, Math.min(14, state.W / 70)) + 20;
+  const lineH = computeCloudLineH(state.W);
+  const startY = Math.max(hudH + 6, cloud.y);
+  return startY + 5 * lineH;
+}
+
+export function computeUmbrellaYBounds(state: Pick<GameState, 'W' | 'H' | 'clouds'>): { minY: number; maxY: number } {
+  const umbrellaLineH = computeUmbrellaLineH(state.W);
+
+  let cloudCeiling = Infinity;
+  for (const cloud of state.clouds) {
+    cloudCeiling = Math.min(cloudCeiling, computeCloudBottom(state, cloud));
+  }
+
+  if (!Number.isFinite(cloudCeiling)) {
+    cloudCeiling = Math.max(0, state.H * 0.12);
+  }
+
+  const groundY = Math.round(state.H * 0.84);
+  return {
+    minY: Math.max(0, cloudCeiling + umbrellaLineH * 2),
+    maxY: groundY - umbrellaLineH * (UMBRELLA_CANOPY_LINES + UMBRELLA_HANDLE_LINES + UMBRELLA_FOOT_LINES),
+  };
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -464,6 +506,7 @@ function spawnSplash(
       maxLife: isHit ? (0.5 + Math.random() * 0.35) : (0.28 + Math.random() * 0.2),
       glyph: glyphs[Math.floor(Math.random() * glyphs.length)],
       color,
+      type,
     });
   }
 }
@@ -672,14 +715,13 @@ function updatePlaying(state: GameState, dt: number): void {
     }
   }
   const lerpSpeed = 20;
-  const hudH = 34;
   state.umbrellaX += (state.pointerX - state.umbrellaX) * Math.min(1, lerpSpeed * dt);
   state.umbrellaY += ((state.pointerY - 24) - state.umbrellaY) * Math.min(1, lerpSpeed * dt);
   const hw = state.umbrellaW / 2;
   state.umbrellaX = Math.max(hw + 4, Math.min(state.W - hw - 4, state.umbrellaX));
-  const umbrellaMaxY = state.travelerBaseY - 35;
-  state.umbrellaY = Math.max(hudH + 8, Math.min(umbrellaMaxY, state.umbrellaY));
-
+  const umbrellaBounds = computeUmbrellaYBounds(state);
+  state.umbrellaY = Math.max(umbrellaBounds.minY, Math.min(umbrellaBounds.maxY, state.umbrellaY));
+  
   // Clouds — maintain count, update drift, fire per-cloud
   maintainClouds(state);
   updateClouds(state, dt);
@@ -695,7 +737,7 @@ function updatePlaying(state: GameState, dt: number): void {
     h.x += (h.vx + state.windX * 0.3) * dt;
     h.y += h.vy * dt;
 
-    // Umbrella collision
+    // Umbrella collision - no score/combo on direct hit, particles handle scoring
     if (!h.blocked) {
       const ux0 = state.umbrellaX - state.umbrellaW / 2;
       const ux1 = state.umbrellaX + state.umbrellaW / 2;
@@ -717,11 +759,7 @@ function updatePlaying(state: GameState, dt: number): void {
         } else {
           spawnSplash(state, h.x, h.y, h.type, false);
         }
-        state.combo++;
-        state.comboTimer = 0;
-        const pts = (h.type === 'hail' ? 15 : h.type === 'snow' ? 8 : 5) * Math.max(1, state.combo);
-        state.score += pts;
-        spawnScorePopup(state, h.x, h.y - 10, pts, state.combo);
+        // No score/combo increment here - particles handle scoring when they hit umbrella
         state.audioEvents.push({ kind: 'block', hazardType: h.type });
         toRemove.add(i);
         continue;
@@ -751,8 +789,12 @@ function updatePlaying(state: GameState, dt: number): void {
       }
     }
 
-    // Off-screen
-    if (h.y > groundY + 40 || h.x < -50 || h.x > state.W + 50) {
+    // Ground collision — spawn splash before removing (no score)
+    if (h.y > groundY) {
+      // Only spawn if not already blocked (umbrella hit)
+      if (!h.blocked) {
+        spawnSplash(state, h.x, h.y, h.type, false);
+      }
       toRemove.add(i);
     }
   }
@@ -774,6 +816,25 @@ function updateParticles(state: GameState, dt: number): void {
     p.y += p.vy * dt;
     p.vy += 140 * dt;
     p.life -= dt / p.maxLife;
+    
+    // Check if particle hit the umbrella
+    const ux0 = state.umbrellaX - state.umbrellaW / 2;
+    const ux1 = state.umbrellaX + state.umbrellaW / 2;
+    const uyTop = state.umbrellaY;
+    const uyBot = state.umbrellaY + state.umbrellaH + 12;
+    if (p.x >= ux0 && p.x <= ux1 && p.y >= uyTop && p.y <= uyBot) {
+      // Particle hit the umbrella - increment score/combo
+      state.combo++;
+      state.comboTimer = 0;
+      const pts = (p.type === 'hail' ? 15 : p.type === 'snow' ? 8 : 5) * Math.max(1, state.combo);
+      state.score += pts;
+      spawnScorePopup(state, p.x, p.y - 10, pts, state.combo);
+      state.audioEvents.push({ kind: 'block', hazardType: p.type });
+      // Remove particle on hit
+      state.particles.splice(i, 1);
+      continue;
+    }
+    
     if (p.life <= 0) state.particles.splice(i, 1);
   }
 }
@@ -898,6 +959,8 @@ export function handlePointerUp(state: GameState): void {
 
 function startGame(state: GameState): void {
   state.phase = 'playing';
+  state.umbrellaVY = 0;
+  state._umbrellaActualY = state.umbrellaY;
 }
 
 function restartGame(state: GameState): void {
@@ -908,4 +971,6 @@ function restartGame(state: GameState): void {
   fresh.keysHeld = state.keysHeld; // preserve live key state across restart
   fresh.keysHeld.clear();
   Object.assign(state, fresh);
+  state.umbrellaVY = 0;
+  state._umbrellaActualY = state.umbrellaY;
 }
