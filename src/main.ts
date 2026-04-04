@@ -3,6 +3,7 @@ import {
   createInitialState,
   update,
   handleKeyDown,
+  handleKeyUp,
   handlePointerMove,
   handlePointerDown,
   handlePointerUp,
@@ -42,7 +43,10 @@ function resize(): void {
     state.W = W;
     state.H = H;
     state.travelerX = W * 0.38;
-    state.travelerY = H * 0.72;
+    const travelerSize = Math.max(14, Math.min(22, W / 40));
+    const baseY = Math.round(H * 0.84) - travelerSize * 2.95;
+    state.travelerY = baseY;
+    state.travelerBaseY = baseY;
     state.umbrellaW = Math.max(80, Math.min(220, W * 0.18));
   }
 }
@@ -408,33 +412,57 @@ function drawClouds(s: GameState): void {
 }
 
 // Ground
+function travelerGroundY(s: GameState): number {
+  return Math.round(s.H * 0.84);
+}
+
 function drawGround(s: GameState): void {
-  const groundY = s.travelerY + 45;
+  const groundY = travelerGroundY(s);
   const size    = sz(W / 80, 9, 12);
   const f       = fnt(size);
+  const lineH   = Math.ceil(size * 1.35);
 
+  // Solid background fill
   ctx.fillStyle = COLORS.ground;
   ctx.fillRect(0, groundY, W, H - groundY);
 
-  // Scrolling block-char strip
-  const pattern = '\u2593\u2592\u2591\xb7\u2592\u2591\u2593\u2592\u2591';
-  const charW   = measureText(ctx, '\u2593', f).width;
-  const totalW  = pattern.length * charW;
-  let x = -(s.groundOffset % totalW);
-  ctx.save();
-  ctx.font = f;
-  ctx.fillStyle = COLORS.groundText;
-  ctx.textBaseline = 'top';
-  ctx.globalAlpha = 0.55;
-  while (x < W + totalW) {
-    ctx.fillText(pattern, x, groundY + 2);
-    x += totalW;
-  }
-  ctx.restore();
+  // ASCII ground fill — multiple rows, each with a different scrolling pattern.
+  // Row 0 (surface): dense block chars
+  // Row 1: mid-density
+  // Row 2+: sparse dots — gives a sense of depth/soil layering
+  const rows = [
+    { pattern: '\u2593\u2592\u2591\u2593\u2592\u2591\u2593\u2592', color: COLORS.groundLine, alpha: 0.75 },
+    { pattern: '\u2592\u2591\xb7\u2592\u2591\u2592\xb7\u2591',    color: COLORS.groundText,  alpha: 0.55 },
+    { pattern: '\u2591\xb7 \u2591 \xb7\u2591 \xb7',               color: COLORS.groundText,  alpha: 0.30 },
+    { pattern: '\xb7  \xb7   \xb7 ',                               color: COLORS.groundText,  alpha: 0.18 },
+  ];
 
-  // Top-of-ground green line
-  ctx.fillStyle = COLORS.dimGreen;
-  ctx.fillRect(0, groundY, W, 1);
+  const charW = measureText(ctx, '\u2593', f).width;
+
+  for (let row = 0; row < rows.length; row++) {
+    const { pattern, color, alpha } = rows[row];
+    const rowY = groundY + row * lineH + 2;
+    if (rowY > H) break;
+
+    // Alternate scroll direction per row for a natural texture feel
+    const scroll = row % 2 === 0 ? s.groundOffset : -s.groundOffset;
+    const totalW = pattern.length * charW;
+    let x = -((scroll % totalW) + totalW) % totalW;
+
+    while (x < W + totalW) {
+      drawText(ctx, pattern, x, rowY, f, color, 'left', 'top', alpha);
+      x += totalW;
+    }
+  }
+
+  // Top-of-ground separator — tight row of box-drawing dashes via pretext
+  const dashF = fnt(size - 1);
+  const dashW = measureText(ctx, '\u2500', dashF).width;
+  let dx = 0;
+  while (dx < W) {
+    drawText(ctx, '\u2500', dx, groundY, dashF, COLORS.dimGreen, 'left', 'top', 0.8);
+    dx += dashW;
+  }
 }
 
 // Wind indicator (subtle directional text on bottom-left)
@@ -444,18 +472,58 @@ function drawWindIndicator(s: GameState): void {
   const speed = Math.abs(s.windX).toFixed(0);
   const size  = sz(W / 90, 8, 11);
   const alpha = Math.min(0.6, Math.abs(s.windX) / 80);
-  const groundY = s.travelerY + 45;
+  const groundY = travelerGroundY(s);
   drawText(ctx, `WIND ${dir} ${speed}`, 12, groundY + 6, fnt(size), COLORS.cyan, 'left', 'top', alpha);
 }
 
 // Traveler
-const TRAVELER_FRAMES = ['(^)', '(o)', '(^)', '(-)'];
+// Walking frames: head cycles through expressions, legs cycle based on speed
+const TRAVELER_HEADS = ['(^)', '(o)', '(^)', '(-)'];
+const LEGS_IDLE  = ['/ \\', '/ \\'];
+const LEGS_WALK  = ['/ \\', ' |/ ', '/ \\', ' \\| '];
+const LEGS_RUN   = ['/|\\', '/ /', '|\\|', '\\ \\'];
 let tFrame = 0;
+let tLegFrame = 0;
 let tTimer = 0;
+let tLegTimer = 0;
 
 function drawTraveler(s: GameState): void {
+  const speed = Math.abs(s.travelerVX);
+  const maxSpeed = s.travelerMaxSpeed || 220;
+  const speedFrac = speed / maxSpeed; // 0..1
+  const airborne = s.isJumping;
+
+  // Head animation — speeds up with movement
+  const headInterval = speedFrac > 0.6 ? 0.10 : speedFrac > 0.2 ? 0.15 : 0.22;
   tTimer += 0.016;
-  if (tTimer > 0.18) { tTimer = 0; tFrame = (tFrame + 1) % TRAVELER_FRAMES.length; }
+  if (tTimer > headInterval) {
+    tTimer = 0;
+    tFrame = (tFrame + 1) % TRAVELER_HEADS.length;
+  }
+
+  // Leg animation — freeze mid-tuck while airborne
+  if (!airborne) {
+    const legInterval = speedFrac > 0.6 ? 0.07 : speedFrac > 0.15 ? 0.12 : 0.3;
+    tLegTimer += 0.016;
+    if (tLegTimer > legInterval) {
+      tLegTimer = 0;
+      const legFrameCount = speedFrac > 0.6 ? LEGS_RUN.length : speedFrac > 0.15 ? LEGS_WALK.length : LEGS_IDLE.length;
+      tLegFrame = (tLegFrame + 1) % legFrameCount;
+    }
+  }
+
+  const legFrames = speedFrac > 0.6 ? LEGS_RUN : speedFrac > 0.15 ? LEGS_WALK : LEGS_IDLE;
+  const groundLegStr = legFrames[tLegFrame % legFrames.length];
+
+  // Jump pose: tucked legs going up, spread coming down
+  const risingStr  = '\\o/'; // arms out on the way up
+  const fallingStr = '/o\\'; // arms in on the way down
+  const armsJump   = s.travelerVY < 0 ? risingStr : fallingStr;
+  const legsJump   = s.travelerVY < 0 ? ' ^^' : ' vv';
+
+  // Normal arms direction
+  const moving = s.travelerVX;
+  const armsStr = moving < -10 ? '<|>' : moving > 10 ? '>|<' : '/|\\';
 
   const size = sz(W / 40, 14, 22);
   const f    = fnt(size, 700);
@@ -464,16 +532,45 @@ function drawTraveler(s: GameState): void {
   const visible = s.hitCooldown > 0 ? (Math.floor(s.hitCooldown * 9) % 2 === 0) : true;
   if (!visible) return;
 
-  const glow = s.hitCooldown > 0 ? COLORS.brightRed : COLORS.green;
-  drawTextShadow(ctx, TRAVELER_FRAMES[tFrame], s.travelerX, s.travelerY,
-    f, COLORS.traveler, glow, 8, 'center', 'top');
-  drawText(ctx, '/|\\', s.travelerX, s.travelerY + size + 2,    f, COLORS.traveler, 'center', 'top');
-  drawText(ctx, '/ \\', s.travelerX, s.travelerY + size * 2 + 2, f, COLORS.traveler, 'center', 'top');
+  const glow = s.hitCooldown > 0 ? COLORS.brightRed : airborne ? COLORS.brightAmber : COLORS.green;
+
+  // Speed-based x wobble when running fast (dampened in air)
+  const wobble = !airborne && speedFrac > 0.7 ? Math.sin(Date.now() / 55) * 1.5 : 0;
+  const tx = s.travelerX + wobble;
+
+  // Ground shadow while airborne — ASCII glyph that shrinks and fades with height
+  if (airborne && s.travelerBaseY) {
+    const rise = s.travelerBaseY - s.travelerY;
+    const maxRise = s.H * 0.20;
+    const t = Math.max(0, 1 - rise / maxRise);           // 1 at ground, 0 at peak
+    const shadowAlpha = t * 0.55;
+    // Scale font size down as traveler rises — wide at ground, narrow at peak
+    const shadowSize = Math.max(6, size * (0.5 + t * 0.8));
+    const shadowF = fnt(shadowSize);
+    // Glyph gets narrower with altitude: full shadow → thin shadow
+    const shadowGlyph = t > 0.7 ? '(_____)' : t > 0.4 ? '(___)' : t > 0.15 ? '(_)' : '.';
+    drawText(ctx, shadowGlyph, tx, s.travelerBaseY + size * 2.6,
+      shadowF, COLORS.dim, 'center', 'top', shadowAlpha);
+  }
+
+  const headStr = airborne ? '(O)' : TRAVELER_HEADS[tFrame]; // wide eyes mid-air
+  drawTextShadow(ctx, headStr, tx, s.travelerY,
+    f, COLORS.traveler, glow, airborne ? 12 : 8, 'center', 'top');
+  drawText(ctx, airborne ? armsJump : armsStr, tx, s.travelerY + size + 2,      f, COLORS.traveler, 'center', 'top');
+  drawText(ctx, airborne ? legsJump : groundLegStr, tx, s.travelerY + size * 2 + 2, f, COLORS.traveler, 'center', 'top');
+
+  // Speed trail — ghost glyphs when sprinting (ground only)
+  if (!airborne && speedFrac > 0.65) {
+    const trailAlpha = (speedFrac - 0.65) / 0.35 * 0.35;
+    const trailOffset = -s.travelerVX * 0.045;
+    drawText(ctx, headStr, tx + trailOffset, s.travelerY,
+      f, COLORS.traveler, 'center', 'top', trailAlpha);
+  }
 }
 
 // Hazards
 function drawHazards(s: GameState): void {
-  const groundY = s.travelerY + 45;
+  const groundY = travelerGroundY(s);
   for (const h of s.hazards) {
     if (h.y > groundY) continue;
     const base = h.type === 'hail' ? sz(W / 55, 12, 17) : sz(W / 65, 10, 14);
@@ -729,6 +826,10 @@ function bindEvents(): void {
   window.addEventListener('keydown', (e) => {
     resumeAudio();
     handleKeyDown(state, e.key);
+  });
+
+  window.addEventListener('keyup', (e) => {
+    handleKeyUp(state, e.key);
   });
 
   canvas.addEventListener('mousemove', (e) => {
