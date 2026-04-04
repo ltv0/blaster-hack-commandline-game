@@ -60,6 +60,21 @@ export interface UmbrellaSlide {
   alpha: number;
 }
 
+export interface Cloud {
+  id: number;
+  x: number;          // centre x
+  y: number;          // centre y (stays in top strip)
+  vx: number;         // horizontal drift speed (px/s)
+  type: 'rain' | 'snow' | 'hail';
+  // pulsing flash when it emits a hazard
+  flashTimer: number;
+  // width in pixels (written by renderer so spawn x is accurate)
+  artW: number;
+  // per-cloud independent spawn cadence
+  spawnTimer: number;
+  spawnInterval: number;
+}
+
 export type AudioEvent =
   | { kind: 'block'; hazardType: 'rain' | 'snow' | 'hail' }
   | { kind: 'hit' }
@@ -89,7 +104,11 @@ export interface GameState {
   umbrellaW: number;
   umbrellaH: number;
 
-  // hazards
+  // clouds — weather sources drifting at the top
+  clouds: Cloud[];
+  cloudIdCounter: number;
+
+  // active falling hazards emitted by clouds
   hazards: Hazard[];
   hazardIdCounter: number;
   spawnTimer: number;
@@ -198,6 +217,10 @@ export const COLORS = {
   snowSplash:  '#e0f7fa',
   star:        '#21262d',
   comboGold:   '#ffd700',
+  cloudRain:   '#2a4a6b',
+  cloudSnow:   '#3a4a5a',
+  cloudHail:   '#2d3540',
+  cloudFlash:  '#56d4e0',
 };
 
 // ─── Init ─────────────────────────────────────────────────────────────────────
@@ -221,6 +244,9 @@ export function createInitialState(W: number, H: number): GameState {
     umbrellaY: H * 0.55,
     umbrellaW: computeUmbrellaW(W),
     umbrellaH: 14,
+
+    clouds: [],
+    cloudIdCounter: 0,
 
     hazards: [],
     hazardIdCounter: 0,
@@ -278,36 +304,107 @@ function computeUmbrellaW(W: number): number {
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
-function spawnHazard(state: GameState): void {
-  const { W, elapsed, difficultyLevel: level } = state;
-  const roll = Math.random();
-  let type: 'rain' | 'snow' | 'hail';
-  if (level < 2) {
-    type = roll < 0.72 ? 'rain' : 'snow';
-  } else if (level < 5) {
-    type = roll < 0.48 ? 'rain' : roll < 0.78 ? 'snow' : 'hail';
-  } else {
-    type = roll < 0.38 ? 'rain' : roll < 0.62 ? 'snow' : 'hail';
+// ─── Cloud helpers ────────────────────────────────────────────────────────────
+
+function cloudSpawnInterval(level: number, type: 'rain' | 'snow' | 'hail'): number {
+  // Rain fires fastest, hail slowest but hits harder
+  const base = type === 'rain' ? 0.55 : type === 'snow' ? 0.75 : 1.1;
+  return Math.max(0.18, base - level * 0.04);
+}
+
+function spawnCloud(state: GameState, x: number, type: 'rain' | 'snow' | 'hail'): void {
+  const { H, difficultyLevel: level } = state;
+  const cloudY   = H * 0.07 + Math.random() * H * 0.07;
+  // Clouds drift at different speeds by type: rain drifts faster, hail sluggish
+  const baseSpeed = type === 'rain' ? 22 : type === 'snow' ? 14 : 10;
+  const speed     = (baseSpeed + Math.random() * 12) * (Math.random() < 0.5 ? 1 : -1);
+  state.clouds.push({
+    id: state.cloudIdCounter++,
+    x,
+    y: cloudY,
+    vx: speed,
+    type,
+    flashTimer: 0,
+    artW: 0,
+    spawnTimer: Math.random() * 0.8, // stagger so they don't all fire at once
+    spawnInterval: cloudSpawnInterval(level, type),
+  });
+}
+
+/** Keep 3–6 clouds on screen, scaling with difficulty. Each type is represented. */
+function maintainClouds(state: GameState): void {
+  const { W, difficultyLevel: level } = state;
+  const target = Math.min(6, 3 + Math.floor(level / 2));
+
+  // Count existing types
+  const typeCounts = { rain: 0, snow: 0, hail: 0 };
+  for (const c of state.clouds) typeCounts[c.type]++;
+
+  while (state.clouds.length < target) {
+    // Prioritise types that are missing or underrepresented
+    let type: 'rain' | 'snow' | 'hail';
+    if (level < 2) {
+      // Early game: only rain + snow
+      type = typeCounts.rain <= typeCounts.snow ? 'rain' : 'snow';
+    } else {
+      // Pick the least-represented type
+      if (typeCounts.hail === 0 && level >= 2) {
+        type = 'hail';
+      } else if (typeCounts.rain <= typeCounts.snow && typeCounts.rain <= typeCounts.hail) {
+        type = 'rain';
+      } else if (typeCounts.snow <= typeCounts.hail) {
+        type = 'snow';
+      } else {
+        type = 'hail';
+      }
+    }
+    // Spread new clouds across the width
+    const x = Math.random() * W;
+    spawnCloud(state, x, type);
+    typeCounts[type]++;
   }
+}
 
-  const glyphs = HAZARD_GLYPHS[type];
-  const glyph = glyphs[Math.floor(Math.random() * glyphs.length)];
+/** Spawn one hazard from a specific cloud — called per-cloud from updateClouds. */
+function spawnHazardFromCloud(state: GameState, cloud: Cloud): void {
+  const { difficultyLevel: level, elapsed } = state;
 
-  const speedBase = 85 + level * 20 + elapsed * 0.5;
-  const vy = speedBase * (0.75 + Math.random() * 0.5);
-  const vx = (Math.random() - 0.5) * speedBase * 0.25 + state.windX * 0.5;
-  const size = type === 'hail'
-    ? (0.9 + Math.random() * 0.4)
-    : (0.7 + Math.random() * 0.3);
+  // X spread within the cloud body
+  const spread = Math.max(cloud.artW * 0.4, 18);
+  const x = cloud.x + (Math.random() - 0.5) * spread;
+  // Y just below the cloud art (cloud.y is top of art, add ~artH approximation)
+  const y = cloud.y + 28 + Math.random() * 8;
+
+  const glyphs = HAZARD_GLYPHS[cloud.type];
+  const glyph  = glyphs[Math.floor(Math.random() * glyphs.length)];
+
+  const speedBase = 90 + level * 18 + elapsed * 0.4;
+  const vy = speedBase * (0.8 + Math.random() * 0.4);
+  const vx = (Math.random() - 0.5) * speedBase * 0.22 + state.windX * 0.5;
+  const size = cloud.type === 'hail'
+    ? 0.9 + Math.random() * 0.4
+    : 0.7 + Math.random() * 0.3;
 
   state.hazards.push({
     id: state.hazardIdCounter++,
-    x: Math.random() * W,
-    y: -20,
-    vx, vy, type, glyph,
-    blocked: false, size,
+    x, y,
+    vx, vy,
+    type: cloud.type,
+    glyph,
+    blocked: false,
+    size,
   });
+
+  cloud.flashTimer = 0.2;
 }
+
+/** Legacy single-hazard spawn used by the batch timer — now just picks a random cloud. */
+function spawnHazard(state: GameState): void {
+  if (state.clouds.length === 0) return;
+  const cloud = state.clouds[Math.floor(Math.random() * state.clouds.length)];
+  spawnHazardFromCloud(state, cloud);
+}
+
 
 function spawnSplash(
   state: GameState,
@@ -505,13 +602,9 @@ function updatePlaying(state: GameState, dt: number): void {
   state.umbrellaX = Math.max(hw + 4, Math.min(state.W - hw - 4, state.umbrellaX));
   state.umbrellaY = Math.max(hudH + 8, Math.min(state.travelerY - 35, state.umbrellaY));
 
-  // Spawn
-  state.spawnTimer += dt;
-  const batch = 1 + Math.floor(state.difficultyLevel / 3);
-  if (state.spawnTimer >= state.spawnInterval) {
-    state.spawnTimer -= state.spawnInterval;
-    for (let b = 0; b < batch; b++) spawnHazard(state);
-  }
+  // Clouds — maintain count, update drift, fire per-cloud
+  maintainClouds(state);
+  updateClouds(state, dt);
 
   // Update hazards
   const groundY = state.travelerY + 45;
@@ -652,6 +745,29 @@ function updateUmbrellaSlides(state: GameState, dt: number): void {
       s.vy += 260 * dt;
       s.y  += s.vy * dt;
       s.x  += s.dir * 10 * dt;
+    }
+  }
+}
+
+function updateClouds(state: GameState, dt: number): void {
+  const { W, difficultyLevel: level } = state;
+  for (const c of state.clouds) {
+    c.x += c.vx * dt;
+    c.x += state.windX * 0.04 * dt;
+    const pad = 140;
+    if (c.vx > 0 && c.x > W + pad) c.x = -pad;
+    if (c.vx < 0 && c.x < -pad)    c.x = W + pad;
+    if (c.flashTimer > 0) c.flashTimer = Math.max(0, c.flashTimer - dt);
+
+    // Per-cloud independent spawn — each cloud fires on its own cadence
+    c.spawnTimer += dt;
+    // Update interval in case difficulty changed
+    c.spawnInterval = cloudSpawnInterval(level, c.type);
+    if (c.spawnTimer >= c.spawnInterval) {
+      c.spawnTimer -= c.spawnInterval;
+      // Burst: rain fires 1-2 drops, snow 1, hail 1 (but hail is bigger)
+      const burst = c.type === 'rain' && level >= 3 ? 2 : 1;
+      for (let b = 0; b < burst; b++) spawnHazardFromCloud(state, c);
     }
   }
 }

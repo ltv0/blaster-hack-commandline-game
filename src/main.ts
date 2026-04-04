@@ -9,6 +9,7 @@ import {
   COLORS,
   type GameState,
   type AudioEvent,
+  type Cloud,
 } from './game.ts';
 import {
   clearCanvas,
@@ -260,6 +261,7 @@ function drawBoot(s: GameState): void {
 
 function drawGame(s: GameState): void {
   drawStars(s);
+  drawClouds(s);
   drawGround(s);
   drawWindIndicator(s);
   drawTraveler(s);
@@ -294,6 +296,115 @@ function drawStars(s: GameState): void {
     ctx.fillRect(Math.round(star.x), Math.round(y), star.size, star.size);
   }
   ctx.restore();
+}
+
+// Clouds — three visually distinct ASCII shapes per weather type
+function getCloudLines(c: Cloud): string[] {
+  if (c.type === 'rain') {
+    // Rounded, droopy, with dangling rain streaks
+    return [
+      "   .-~~~~-.   .-.",
+      "  / R A I N ~~' \\",
+      " (   cloud   .   )",
+      "  `-.______.-'",
+      "  | ' | ' | ' |",
+    ];
+  } else if (c.type === 'snow') {
+    // Wide, fluffy, layered bumps
+    return [
+      " .-. .~~~. .-. .-.",
+      "(   ) SNOW (   )  )",
+      " `-' cloud `-' `-'",
+      "  `----_____----'",
+      "  * . * . * . *",
+    ];
+  } else {
+    // Angular, jagged, threatening
+    return [
+      " /\\/\\/\\  HAIL  /\\/\\",
+      "|  ##  ########  |",
+      "|## cloud #####  |",
+      " \\__####/####__/",
+      "  O . O . O . O",
+    ];
+  }
+}
+
+function drawClouds(s: GameState): void {
+  const hudH  = sz(W / 70, 10, 14) + 18;
+  const size  = sz(W / 85, 7, 12);
+  const lineH = Math.round(size * 1.3);
+
+  for (const cloud of s.clouds) {
+    const f     = fnt(size, 700);
+    const lines = getCloudLines(cloud);
+
+    let maxW = 0;
+    for (const l of lines) maxW = Math.max(maxW, measureText(ctx, l, f).width);
+    cloud.artW = maxW;
+
+    const startX = cloud.x - maxW / 2;
+    const startY = Math.max(hudH + 4, cloud.y);
+
+    const flash = cloud.flashTimer > 0;
+    const flashStrength = cloud.flashTimer / 0.2; // 0–1
+
+    // Per-type distinct color palettes
+    let bodyColor: string, accentColor: string, rimColor: string;
+    if (cloud.type === 'rain') {
+      bodyColor   = flash ? '#3a6a9a' : '#1e3a52';
+      accentColor = COLORS.rain;
+      rimColor    = '#2a5070';
+    } else if (cloud.type === 'snow') {
+      bodyColor   = flash ? '#6080a0' : '#2e4055';
+      accentColor = COLORS.snow;
+      rimColor    = '#4a6070';
+    } else {
+      bodyColor   = flash ? '#505050' : '#252525';
+      accentColor = COLORS.hail;
+      rimColor    = '#383838';
+    }
+
+    const glowColor = flash ? accentColor : rimColor;
+    const glowBlur  = flash ? 18 : 6;
+    const bodyAlpha = 0.85 + flashStrength * 0.15;
+
+    // Body lines (all but the drip row)
+    for (let i = 0; i < lines.length - 1; i++) {
+      drawTextShadow(
+        ctx, lines[i], startX, startY + i * lineH,
+        f, bodyColor, glowColor, glowBlur,
+        'left', 'top', bodyAlpha,
+      );
+    }
+
+    // Drip / particle row — accent color, pulses with sine wave
+    const dripLine  = lines[lines.length - 1];
+    const dripY     = startY + (lines.length - 1) * lineH;
+    const dripPulse = flash
+      ? 1.0
+      : 0.55 + Math.sin(s.elapsed * 2.5 + cloud.id * 1.7) * 0.2;
+    drawTextShadow(
+      ctx, dripLine, startX, dripY,
+      f, accentColor, accentColor, flash ? 14 : 4,
+      'left', 'top', Math.max(0.25, dripPulse),
+    );
+
+    // When actively flashing, draw a short burst of drops below the cloud
+    if (flash) {
+      const dropF   = fnt(size - 1);
+      const dropY   = dripY + lineH;
+      const dropGlyph = cloud.type === 'rain' ? '|'
+                      : cloud.type === 'snow' ? '*'
+                      :                         'o';
+      const drops = 3;
+      for (let d = 0; d < drops; d++) {
+        const dx = startX + (maxW / (drops + 1)) * (d + 1);
+        drawText(ctx, dropGlyph, dx, dropY, dropF, accentColor,
+          'center', 'top', flashStrength * 0.9);
+      }
+    }
+  }
 }
 
 // Ground
