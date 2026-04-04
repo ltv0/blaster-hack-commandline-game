@@ -164,13 +164,38 @@ Set-ExecutionPolicy -Scope CurrentUser RemoteSigned
 - Cloudflare Pages
 
 ### Deployment Checklist
-- [ ] Confirm `npm run build` completes without errors
-- [ ] Validate game behavior in local `npm run preview`
-- [ ] Confirm mobile and desktop layout behavior
-- [ ] Deploy `dist/` output to selected platform
-- [ ] Verify live URL and restart flow in production
+- [X] Confirm `npm run build` completes without errors
+- [X] Validate game behavior in local `npm run preview`
+- [X] Confirm mobile and desktop layout behavior
+- [X] Deploy `dist/` output to selected platform
+- [X] Verify live URL and restart flow in production
 
 ---
+### Current Feature Checklist
+
+#### High Priority
+- [ ] Cloud wrap-around mechanics (infinite scroll or spawning new clouds as the clouds leave)
+- [ ] BACKGROUND AND GORUND SHOULD BE DISTINGQUISHED BY TEXT INSTEAD OF BEING A BLANK CANVAS
+- [ ] Background ASCII terrain (both ground and sky)
+- [ ] Object trail effects (visual effects. We have some motion trails already but they suck)
+- [ ] improving stick chungus
+- [ ] Boss hazards (these should spawn every 5 rounds)
+
+#### Medium Priority
+- [ ] Power-up system 
+- [ ] Hazard variants (acid rain, thunder, blizzards? Maybe add some random gameplay differences per each cloud.)
+- [ ] Milestone rewards (idk something for progression)
+- [ ] Sound effects
+- [ ] Background music
+- [ ] Screen shake
+- [ ] Particle variety (we actually have this partially implemented already.)
+
+#### Low Priority
+- [ ] Performance optimization (idk it sucks to run on my pc)
+- [ ] Mobile touch improvements
+- [ ] Settings menu
+- [ ] Leaderboards (idk how to hook this up online.)
+- [ ] multiplayer
 
 
 ### Current Feature Checklist
