@@ -917,27 +917,47 @@ function drawUmbrellaSlides(s: GameState): void {
       drawY = peakY + xFrac * (rimY - peakY);
     }
 
+    // Use color/type for snow/rain
     if (slide.phase === 'slide') {
-      const g = slide.dir === -1 ? '\\' : '/';
+      let g;
+      if (slide.type === 'snow') {
+        g = slide.glyph;
+      } else {
+        g = slide.dir === -1 ? '\\' : '/';
+      }
       const block = renderer.getBlock(g, f, lh);
       renderer.drawBlock(ctx, block, drawX, drawY, {
-        color: COLORS.rain,
-        shadowColor: COLORS.rain,
+        color: slide.color,
+        shadowColor: slide.color,
         shadowBlur: 3,
         align: 'center',
         alpha: fadeAlpha,
       });
     } else {
-      renderer.drawBlock(ctx, renderer.getBlock('|', f, lh), drawX, drawY, {
-        color: COLORS.rain,
-        align: 'center',
-        alpha: fadeAlpha,
-      });
-      renderer.drawBlock(ctx, renderer.getBlock('\u00b7', f, lh), drawX, drawY - size * 1.2, {
-        color: COLORS.rainDim,
-        align: 'center',
-        alpha: fadeAlpha * 0.5,
-      });
+      // Drip: vertical for rain, snowflake for snow
+      if (slide.type === 'snow') {
+        renderer.drawBlock(ctx, renderer.getBlock(slide.glyph, f, lh), drawX, drawY, {
+          color: slide.color,
+          align: 'center',
+          alpha: fadeAlpha,
+        });
+        renderer.drawBlock(ctx, renderer.getBlock('\u00b7', f, lh), drawX, drawY - size * 1.2, {
+          color: COLORS.snowSplash || '#e0f7fa',
+          align: 'center',
+          alpha: fadeAlpha * 0.5,
+        });
+      } else {
+        renderer.drawBlock(ctx, renderer.getBlock('|', f, lh), drawX, drawY, {
+          color: slide.color,
+          align: 'center',
+          alpha: fadeAlpha,
+        });
+        renderer.drawBlock(ctx, renderer.getBlock('\u00b7', f, lh), drawX, drawY - size * 1.2, {
+          color: COLORS.rainDim,
+          align: 'center',
+          alpha: fadeAlpha * 0.5,
+        });
+      }
     }
   }
 }

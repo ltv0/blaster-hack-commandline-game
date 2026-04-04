@@ -71,6 +71,8 @@ export interface UmbrellaSlide {
   maxLife: number;
   glyph: string;
   alpha: number;
+  type: 'rain' | 'snow';
+  color: string;
 }
 
 export interface Cloud {
@@ -584,7 +586,7 @@ function spawnHeartExplosion(state: GameState, centerX: number, centerY: number)
  * All pixel geometry is computed from state.umbrellaArtStartX/Width/StartY/LineH
  * which the renderer writes each frame before update() is called.
  */
-function spawnUmbrellaSlide(state: GameState, hitX: number, hitY: number): void {
+function spawnUmbrellaSlide(state: GameState, hitX: number, hitY: number, type: 'rain' | 'snow' = 'rain'): void {
   const { umbrellaArtStartX, umbrellaArtWidth, umbrellaArtStartY, umbrellaArtLineH } = state;
 
   // If renderer hasn't written art geometry yet, skip
@@ -613,7 +615,14 @@ function spawnUmbrellaSlide(state: GameState, hitX: number, hitY: number): void 
   const xFrac = Math.min(1, Math.abs(hitX - artCenterX) / halfW);
   const surfaceY = peakY + xFrac * (rimY - peakY);
 
-  const slideGlyphs = ['|', '\'', '\u00b7', '\u254e'];
+  let slideGlyphs: string[], color: string;
+  if (type === 'snow') {
+    slideGlyphs = ['*', '\u2744', '\u2217', '\u2726', '\u204e', '\u00b7'];
+    color = COLORS.snowSplash || '#e0f7fa';
+  } else {
+    slideGlyphs = ['|', '\'', '\u00b7', '\u254e'];
+    color = COLORS.rain;
+  }
   const glyph = slideGlyphs[Math.floor(Math.random() * slideGlyphs.length)];
 
   // Slide speed proportional to remaining distance to edge (steeper = faster)
@@ -634,6 +643,8 @@ function spawnUmbrellaSlide(state: GameState, hitX: number, hitY: number): void 
     maxLife: 0.5 + Math.random() * 0.3,
     glyph,
     alpha: 0.9 + Math.random() * 0.1,
+    type,
+    color,
   });
 }
 
@@ -794,14 +805,14 @@ function updatePlaying(state: GameState, dt: number): void {
       const uyBot = state.umbrellaY + state.umbrellaH + 12;
       if (h.x >= ux0 && h.x <= ux1 && h.y >= uyTop && h.y <= uyBot) {
         h.blocked = true;
-        // Rain slides off the canopy; hail/snow still splash
-        if (h.type === 'rain') {
-          // Spawn 1–2 slide drops per rain hit for a streaming feel
+        // Rain and snow slide off the canopy; hail still splashes only
+        if (h.type === 'rain' || h.type === 'snow') {
+          // Spawn 1–2 slide drops per hit for a streaming feel
           const slideCount = Math.random() < 0.55 ? 2 : 1;
           for (let s = 0; s < slideCount; s++) {
             // Slightly vary hit x so multiple drops look natural
             const jitter = (Math.random() - 0.5) * 14;
-            spawnUmbrellaSlide(state, h.x + jitter, h.y);
+            spawnUmbrellaSlide(state, h.x + jitter, h.y, h.type);
           }
           // Small minimal splash so impact is still readable
           spawnSplash(state, h.x, h.y, h.type, false);
