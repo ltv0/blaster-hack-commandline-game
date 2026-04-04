@@ -174,6 +174,8 @@ Set-ExecutionPolicy -Scope CurrentUser RemoteSigned
 ### Current Feature Checklist
 
 #### High Priority
+- [X] BASIC MVP
+- [ ]Visual uplift
 - [ ] Cloud wrap-around mechanics (infinite scroll or spawning new clouds as the clouds leave)
 - [ ] BACKGROUND AND GORUND SHOULD BE DISTINGQUISHED BY TEXT INSTEAD OF BEING A BLANK CANVAS
 - [ ] Background ASCII terrain (both ground and sky)
@@ -198,34 +200,6 @@ Set-ExecutionPolicy -Scope CurrentUser RemoteSigned
 - [ ] multiplayer
 
 
-### Current Feature Checklist
-
-#### High Priority
-- [X] BASIC MVP
-- []Visual uplift
-- [ ] Cloud wrap-around mechanics
-- [ ] BACKGROUND AND GORUND SHOULD BE DISTINGQUISHED BY TEXT INSTEAD OF BEING A BLANK CANVAS
-- [ ] Background ASCII terrain
-- [ ] Object trail effects
-- [ ] improving stick chungus
-- [ ] Boss hazards
-
-#### Medium Priority
-- [ ] Power-up system
-- [ ] Hazard variants
-- [ ] Milestone rewards
-- [ ] Sound effects
-- [ ] Background music
-- [ ] Screen shake
-- [ ] Particle variety
-
-#### Low Priority
-- [ ] Performance optimization
-- [ ] Mobile touch improvements
-- [ ] Settings menu
-- [ ] Seasonal themes
-- [ ] Leaderboards
----
 
 ## File Structure
 
