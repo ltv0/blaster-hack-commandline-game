@@ -36,19 +36,15 @@ Command-line themed web game built for the browser and hosted on a website domai
 Recommended stack:
 
 - **Frontend**
-  - HTML
   - CSS
+  - HTML
   - TypeScript
   - Vite
   - `@chenglou/pretext`
-  - Canvas or plain DOM for rendering
   - Optional: Web Audio API for sound effects
 
 - **Backend**
-  - None
-
-- **Database**
-  - None
+  - TypeScript
 
 This is the simplest stack I’d recommend for a browser-first game: fast to build, easy to host, and no server required.
 
@@ -62,10 +58,6 @@ This is the simplest stack I’d recommend for a browser-first game: fast to bui
 - **Domain:** Your custom domain later if needed
 - **Cost Estimate:** Free to start
 
----
-
-## Notes
-<!-- Additional observations, decisions, and important information -->
 
 ---
 
@@ -74,16 +66,17 @@ This is the simplest stack I’d recommend for a browser-first game: fast to bui
 
 ```
 project-root/
-├── src/
-│   ├── components/
-│   ├── services/
-│   ├── utils/
-│   └── ...
-├── public/
-├── tests/
-├── config/
-│   ├── api keys would probably come here
-└── ...
+├── index.html
+├── package.json
+├── package-lock.json
+├── plan.md
+├── README.md
+├── tsconfig.json
+└── src/
+  ├── game.ts
+  ├── main.ts
+  ├── pretext-renderer.ts
+  └── style.css
 ```
 
 ---
@@ -91,14 +84,15 @@ project-root/
 ## Deployment Checklist
 <!-- Steps required for deployment -->
 
-- [ ] Environment variables configured
-- [ ] Build process completed
-- [ ] Dependencies installed
-- [ ] Database migrations applied
-- [ ] SSL certificates installed
-- [ ] DNS records updated
-- [ ] Load testing completed
-- [ ] Security audit passed
+- [ ] Add project scripts for local dev and production build
+- [ ] Install and verify the frontend dependencies
+- [ ] Confirm the game runs correctly in a local browser session
+- [ ] Test that Pretext text layout and rendering work at the target screen sizes
+- [ ] Build the production static site output
+- [ ] Preview the production build locally before deploying
+- [ ] Deploy the static site to GitHub Pages or Cloudflare Pages
+- [ ] Verify the deployed site loads correctly on desktop and mobile
+- [ ] Check the custom domain or Pages URL if one is being used
 
 ---
 
