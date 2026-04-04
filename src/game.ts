@@ -57,6 +57,8 @@ export interface UmbrellaSlide {
   id: number;
   x: number;        // current x position
   y: number;        // current y position
+  // normalized distance from canopy center to edge (0 = center, 1 = rim)
+  canopyT: number;
   // -1 = sliding left edge, +1 = sliding right edge
   dir: -1 | 1;
   // x coordinate of the edge it's heading toward
@@ -374,6 +376,7 @@ function computeCloudBottom(state: Pick<GameState, 'W' | 'clouds'>, cloud: Cloud
 
 export function computeUmbrellaYBounds(state: Pick<GameState, 'W' | 'H' | 'clouds'>): { minY: number; maxY: number } {
   const umbrellaLineH = computeUmbrellaLineH(state.W);
+  const totalUmbrellaLines = UMBRELLA_CANOPY_LINES + UMBRELLA_HANDLE_LINES + UMBRELLA_FOOT_LINES;
 
   let cloudCeiling = Infinity;
   for (const cloud of state.clouds) {
@@ -386,8 +389,10 @@ export function computeUmbrellaYBounds(state: Pick<GameState, 'W' | 'H' | 'cloud
 
   const groundY = Math.round(state.H * 0.84);
   return {
-    minY: Math.max(0, cloudCeiling + umbrellaLineH * 2),
-    maxY: groundY - umbrellaLineH * (UMBRELLA_CANOPY_LINES + UMBRELLA_HANDLE_LINES + UMBRELLA_FOOT_LINES),
+    // umbrellaY maps to one line below the rendered top (startY = umbrellaY - lineH)
+    minY: Math.max(0, cloudCeiling + umbrellaLineH),
+    // bottom of the rendered umbrella sits (totalLines - 1) lines below umbrellaY
+    maxY: groundY - umbrellaLineH * (totalUmbrellaLines - 1),
   };
 }
 
@@ -597,7 +602,7 @@ function spawnUmbrellaSlide(state: GameState, hitX: number, hitY: number): void 
   // Left tip of row 6 art: "'" is the first char at col 0 of that line.
   // Right tip: "'" is the last char. We approximate tips as artLeft and artRight.
   const peakY   = umbrellaArtStartY + 1 * umbrellaArtLineH; // row 1
-  const rimY    = umbrellaArtStartY + 6 * umbrellaArtLineH; // row 6 (rim)
+  const rimY    = umbrellaArtStartY + (UMBRELLA_CANOPY_LINES - 1) * umbrellaArtLineH; // canopy last row (rim)
 
   // Pick side based on hit position relative to art centre
   const artCenterX = umbrellaArtStartX + umbrellaArtWidth / 2;
@@ -624,6 +629,7 @@ function spawnUmbrellaSlide(state: GameState, hitX: number, hitY: number): void 
     id: state.umbrellaSlideIdCounter++,
     x: hitX,
     y: surfaceY,
+    canopyT: xFrac,
     dir,
     edgeX,
     edgeY,
@@ -843,6 +849,9 @@ function updatePlaying(state: GameState, dt: number): void {
     if (h.y > groundY) {
       // Only spawn if not already blocked (umbrella hit)
       if (!h.blocked) {
+        // Missing a hazard breaks the current combo chain.
+        state.combo = 0;
+        state.comboTimer = 0;
         spawnSplash(state, h.x, h.y, h.type, false);
       }
       toRemove.add(i);
@@ -918,7 +927,7 @@ function updateUmbrellaSlides(state: GameState, dt: number): void {
   const artCenterX = umbrellaArtStartX + umbrellaArtWidth / 2;
   const halfW      = umbrellaArtWidth / 2;
   const peakY      = umbrellaArtStartY + 1 * umbrellaArtLineH;
-  const rimY       = umbrellaArtStartY + 6 * umbrellaArtLineH;
+  const rimY       = umbrellaArtStartY + (UMBRELLA_CANOPY_LINES - 1) * umbrellaArtLineH;
 
   for (let i = state.umbrellaSlides.length - 1; i >= 0; i--) {
     const s = state.umbrellaSlides[i];
@@ -926,16 +935,17 @@ function updateUmbrellaSlides(state: GameState, dt: number): void {
     if (s.life <= 0) { state.umbrellaSlides.splice(i, 1); continue; }
 
     if (s.phase === 'slide') {
-      s.x += s.dir * s.slideSpeed * dt;
-
-      // Y tracks the actual canopy slope: linear from peakY at centre to rimY at edge
       if (halfW > 0) {
-        const xFrac = Math.min(1, Math.abs(s.x - artCenterX) / halfW);
-        s.y = peakY + xFrac * (rimY - peakY);
+        // Move in canopy-local space so drops remain attached as umbrella moves.
+        s.canopyT = Math.min(1, s.canopyT + (s.slideSpeed * dt) / halfW);
+        s.x = artCenterX + s.dir * s.canopyT * halfW;
+        s.y = peakY + s.canopyT * (rimY - peakY);
       }
 
-      const pastEdge = s.dir === -1 ? s.x <= s.edgeX : s.x >= s.edgeX;
+      const pastEdge = s.canopyT >= 1;
       if (pastEdge) {
+        s.edgeX = s.dir === -1 ? umbrellaArtStartX : umbrellaArtStartX + umbrellaArtWidth;
+        s.edgeY = rimY;
         s.x = s.edgeX;
         s.y = s.edgeY;
         s.phase = 'drip';
