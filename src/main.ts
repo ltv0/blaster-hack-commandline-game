@@ -352,11 +352,11 @@ function drawGame(s: GameState): void {
   drawGround(s);
   drawTraveler(s);
   drawHazards(s);
+  drawScorePopups(s);
   drawParticles(s);
   drawHeartExplosions(s);
   drawUmbrella(s);
   drawUmbrellaSlides(s);
-  drawScorePopups(s);
   drawHUD(s);
   drawLevelUpBanner(s);
   if (s.deathFlash > 0 && s.phase !== 'dead') {
@@ -855,9 +855,11 @@ function drawHazards(s: GameState): void {
 
 // Particles
 function drawParticles(s: GameState): void {
-  const size = sz(W / 70, 8, 12);
-  const f = fnt(size);
   for (const p of s.particles) {
+    const baseSize = sz(W / 70, 8, 12);
+    const snowBoost = p.type === 'snow' ? 1.6 : 1;
+    const size = Math.round(baseSize * snowBoost * (p.sizeScale ?? 1));
+    const f = fnt(size);
     const block = renderer.getBlock(p.glyph, f, size * 1.3);
     renderer.drawBlock(ctx, block, p.x, p.y, { color: p.color, shadowColor: p.color, shadowBlur: 4, align: 'center', verticalAlign: 'middle', alpha: Math.max(0, p.life) });
   }

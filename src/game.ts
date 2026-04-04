@@ -25,6 +25,7 @@ export interface Particle {
   glyph: string;
   color: string;
   type: 'rain' | 'snow' | 'hail';
+  sizeScale: number;
 }
 
 export interface ScorePopup {
@@ -511,7 +512,8 @@ function spawnSplash(
   state: GameState,
   x: number, y: number,
   type: 'rain' | 'snow' | 'hail',
-  isHit = false
+  isHit = false,
+  sizeScale = 1
 ): void {
   const count = isHit ? 10 : (type === 'hail' ? 7 : type === 'snow' ? 4 : 2);
   let color: string;
@@ -539,6 +541,7 @@ function spawnSplash(
       glyph: glyphs[Math.floor(Math.random() * glyphs.length)],
       color,
       type,
+      sizeScale,
     });
   }
 }
@@ -762,18 +765,20 @@ function updatePlaying(state: GameState, dt: number): void {
   // Interval range: starts ~2–4s, tightens to ~0.6–1.4s at high levels
   const jumpIntervalMin = Math.max(0.5,  2.0 - state.difficultyLevel * 0.18);
   const jumpIntervalMax = Math.max(1.2,  4.2 - state.difficultyLevel * 0.28);
+  const gravity = 900; // px/s²
 
   state.jumpTimer -= dt;
   if (state.jumpTimer <= 0 && !state.isJumping) {
-    // Launch the jump
-    const jumpH = state.H * (0.10 + Math.random() * 0.10); // 10–20% of screen height
-    state.travelerVY = -Math.sqrt(2 * 900 * jumpH);         // v = sqrt(2gh)
+    // Raise jump ceiling over time while keeping early jumps readable.
+    const jumpMinRatio = 0.10;
+    const jumpMaxRatio = Math.min(0.42, 0.20 + state.difficultyLevel * 0.015 + state.elapsed * 0.0008);
+    const jumpH = state.H * (jumpMinRatio + Math.random() * (jumpMaxRatio - jumpMinRatio));
+    state.travelerVY = -Math.sqrt(2 * gravity * jumpH); // v = sqrt(2gh)
     state.isJumping = true;
     state.jumpTimer = jumpIntervalMin + Math.random() * (jumpIntervalMax - jumpIntervalMin);
   }
 
   if (state.isJumping) {
-    const gravity = 900; // px/s²
     state.travelerVY += gravity * dt;
     state.travelerY  += state.travelerVY * dt;
 
@@ -814,8 +819,8 @@ function updatePlaying(state: GameState, dt: number): void {
       const uyBot = state.umbrellaY + state.umbrellaH + 12;
       if (h.x >= ux0 && h.x <= ux1 && h.y >= uyTop && h.y <= uyBot) {
         h.blocked = true;
-        // Rain and snow slide off the canopy; hail still splashes only
-        if (h.type === 'rain' || h.type === 'snow') {
+        // Rain slides off the canopy; snow/hail pop into splash particles.
+        if (h.type === 'rain') {
           // Spawn 1–2 slide drops per hit for a streaming feel
           const slideCount = Math.random() < 0.55 ? 2 : 1;
           for (let s = 0; s < slideCount; s++) {
@@ -823,10 +828,12 @@ function updatePlaying(state: GameState, dt: number): void {
             const jitter = (Math.random() - 0.5) * 14;
             spawnUmbrellaSlide(state, h.x + jitter, h.y, h.type);
           }
-          // Small minimal splash so impact is still readable
-          spawnSplash(state, h.x, h.y, h.type, false);
+          // Make umbrella-hit rain splash particles render larger.
+          spawnSplash(state, h.x, h.y, h.type, false, 1.35);
         } else {
-          spawnSplash(state, h.x, h.y, h.type, false);
+          // Umbrella-hit snow and hail particles are both boosted in size.
+          const umbrellaImpactScale = h.type === 'snow' ? 1.7 : 1.3;
+          spawnSplash(state, h.x, h.y, h.type, false, umbrellaImpactScale);
         }
         // No score/combo increment here - particles handle scoring when they hit umbrella
         state.audioEvents.push({ kind: 'block', hazardType: h.type });
@@ -903,7 +910,9 @@ function updateParticles(state: GameState, dt: number): void {
       state.comboTimer = 0;
       const pts = (p.type === 'hail' ? 15 : p.type === 'snow' ? 8 : 5) * Math.max(1, state.combo);
       state.score += pts;
-      spawnScorePopup(state, p.x, p.y - 10, pts, state.combo);
+      const popupX = p.x + (Math.random() - 0.5) * 36;
+      const popupY = Math.max(24, state.umbrellaY - 34);
+      spawnScorePopup(state, popupX, popupY, pts, state.combo);
       state.audioEvents.push({ kind: 'block', hazardType: p.type });
       // Remove particle on hit
       state.particles.splice(i, 1);
