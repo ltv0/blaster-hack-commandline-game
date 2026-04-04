@@ -48,8 +48,13 @@ function resize(): void {
 }
 
 const FONT_FAMILY = '"IBM Plex Mono", monospace';
+//const CLOUD_FONT_FAMILY = '"IBM Plex Sans", sans-serif'; for proportional
+const CLOUD_FONT_FAMILY = '"IBM Plex Mono", monospace';
 function fnt(size: number, weight: 400 | 700 = 400): string {
   return `${weight} ${size}px ${FONT_FAMILY}`;
+}
+function cloudFnt(size: number, weight: 400 | 700 = 700): string {
+  return `italic ${weight} ${size}px ${CLOUD_FONT_FAMILY}`;
 }
 function sz(base: number, minV: number, maxV: number): number {
   return Math.max(minV, Math.min(maxV, base));
@@ -370,7 +375,11 @@ function drawStars(s: GameState): void {
 }
 
 // Clouds
-const CLOUD_CHARSET = ' .:-=+*#%@';
+const CLOUD_CHARSET = ' .,-:;=+*#%@';
+function brightnessToCharsetIndex(brightness: number): number {
+  const adjusted = Math.sqrt(brightness);
+  return Math.min(Math.max(Math.floor(adjusted * (CLOUD_CHARSET.length - 1)), 0), CLOUD_CHARSET.length - 1);
+}
 const SHOW_CLOUD_SOURCE_FIELD = false;
 
 // Particle system for cloud source field
@@ -418,9 +427,9 @@ function getSpriteCanvas(radius: number): HTMLCanvasElement {
 }
 
 function spriteAlphaAt(normalizedDistance: number): number {
-  // Zero fuzziness: hard edge circle
   if (normalizedDistance >= 1) return 0;
-  return 1;
+  const t = 1 - normalizedDistance;
+  return t * t;
 }
 
 function createFieldStamp(radiusPx: number): FieldStamp {
@@ -581,7 +590,7 @@ function getCloudLinesFromField(c: Cloud, elapsed: number): string[] {
     let line = '';
     for (let col = 0; col < width; col++) {
       const brightness = sampleBrightness(offsetX + col, offsetY + row);
-      const index = Math.min(Math.max(Math.floor(brightness * (CLOUD_CHARSET.length - 1)), 0), CLOUD_CHARSET.length - 1);
+      const index = brightnessToCharsetIndex(brightness);
       line += CLOUD_CHARSET[index] || ' ';
     }
     lines.push(line);
@@ -631,7 +640,7 @@ function drawClouds(s: GameState): void {
   const hudH  = sz(W / 70, 10, 14) + 20;
   const size  = sz(W / 75, 9, 14);
   const lineH = Math.round(size * 1.35);
-  const f = fnt(size, 700);
+  const f = cloudFnt(size, 700);
   const charW = renderer.measureWidth('M', f);
   const cols = Math.max(1, Math.floor(CANVAS_W / charW));
   const rows = Math.max(1, Math.floor(CANVAS_H / lineH));
@@ -648,7 +657,7 @@ function drawClouds(s: GameState): void {
       if (brightness < 0.05) {
         line += ' ';
       } else {
-        const index = Math.min(Math.max(Math.floor(brightness * (CLOUD_CHARSET.length - 1)), 0), CLOUD_CHARSET.length - 1);
+        const index = brightnessToCharsetIndex(brightness);
         line += CLOUD_CHARSET[index] || ' ';
       }
     }
