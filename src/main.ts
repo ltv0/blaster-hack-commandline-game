@@ -203,10 +203,11 @@ function loop(ts: number): void {
   const dt = Math.min((ts - lastTime) / 1000, 0.05);
   lastTime = ts;
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  updateParticleSystem(dt);
+  updateCloudEmitPoints(state);
   update(state, dt);
   updateUmbrellaPhysics(state, dt);
   updateAsciiBackground(dt);
-  updateParticleSystem(dt);
   handleAudioEvents(state.audioEvents);
   draw(state);
   requestAnimationFrame(loop);
@@ -381,6 +382,10 @@ function drawStars(s: GameState): void {
 
 // Clouds
 const CLOUD_CHARSET = ' .,-:;=+*#%@';
+const CLOUD_EMIT_BRIGHTNESS = 0.22;
+const CLOUD_EMIT_SAMPLE_COLS = 18;
+const CLOUD_EMIT_SAMPLE_ROWS = 8;
+const CLOUD_EMIT_MAX_POINTS = 72;
 function brightnessToCharsetIndex(brightness: number): number {
   const adjusted = Math.sqrt(brightness);
   return Math.min(Math.max(Math.floor(adjusted * (CLOUD_CHARSET.length - 1)), 0), CLOUD_CHARSET.length - 1);
@@ -583,6 +588,55 @@ function sampleBrightness(x: number, y: number): number {
   const gridY = Math.floor(y * FIELD_SCALE_Y);
   if (gridX < 0 || gridX >= FIELD_COLS || gridY < 0 || gridY >= FIELD_ROWS) return 0;
   return brightnessField[gridY * FIELD_COLS + gridX]!;
+}
+
+function updateCloudEmitPoints(s: GameState): void {
+  if (s.clouds.length === 0 || CANVAS_W <= 0 || CANVAS_H <= 0) return;
+
+  const hudH = sz(W / 70, 10, 14) + 20;
+  const cloudSize = sz(W / 75, 9, 14);
+  const lineH = Math.round(cloudSize * 1.35);
+  const startY = hudH + 5;
+  const sampleH = lineH * 8;
+  const fallbackArtW = Math.max(80, Math.min(220, W * 0.18));
+
+  for (const cloud of s.clouds) {
+    const artW = cloud.artW > 0 ? cloud.artW : fallbackArtW;
+    cloud.artW = artW;
+
+    const topFieldY = cloud.y - startY;
+    const leftX = cloud.x - artW / 2;
+    const emitPoints: Array<{ dx: number; dy: number }> = [];
+
+    for (let row = 0; row < CLOUD_EMIT_SAMPLE_ROWS; row++) {
+      const fy = topFieldY + (row + 0.5) * (sampleH / CLOUD_EMIT_SAMPLE_ROWS);
+      if (fy < 0 || fy >= CANVAS_H) continue;
+
+      for (let col = 0; col < CLOUD_EMIT_SAMPLE_COLS; col++) {
+        const fx = leftX + (col + 0.5) * (artW / CLOUD_EMIT_SAMPLE_COLS);
+        if (fx < 0 || fx >= CANVAS_W) continue;
+
+        const brightness = sampleBrightness(fx, fy);
+        if (brightness < CLOUD_EMIT_BRIGHTNESS) continue;
+
+        const absX = fx;
+        const absY = startY + fy;
+        emitPoints.push({ dx: absX - cloud.x, dy: absY - cloud.y });
+      }
+    }
+
+    if (emitPoints.length <= CLOUD_EMIT_MAX_POINTS) {
+      cloud.emitPoints = emitPoints;
+      continue;
+    }
+
+    const reduced: Array<{ dx: number; dy: number }> = [];
+    const step = emitPoints.length / CLOUD_EMIT_MAX_POINTS;
+    for (let i = 0; i < CLOUD_EMIT_MAX_POINTS; i++) {
+      reduced.push(emitPoints[Math.floor(i * step)]!);
+    }
+    cloud.emitPoints = reduced;
+  }
 }
 
 function getCloudLinesFromField(c: Cloud, elapsed: number): string[] {

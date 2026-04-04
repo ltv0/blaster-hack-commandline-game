@@ -88,6 +88,8 @@ export interface Cloud {
   flashTimer: number;
   // width in pixels (written by renderer so spawn x is accurate)
   artW: number;
+  // emit points (relative to cloud center) sampled from visible cloud topology
+  emitPoints: Array<{ dx: number; dy: number }>;
   // per-cloud independent spawn cadence
   spawnTimer: number;
   spawnInterval: number;
@@ -424,6 +426,7 @@ function spawnCloud(state: GameState, x: number, type: 'rain' | 'snow' | 'hail')
     type,
     flashTimer: 0,
     artW: 0,
+    emitPoints: [],
     spawnTimer: Math.random() * 0.8, // stagger so they don't all fire at once
     spawnInterval: cloudSpawnInterval(level, type),
   });
@@ -467,11 +470,11 @@ function maintainClouds(state: GameState): void {
 function spawnHazardFromCloud(state: GameState, cloud: Cloud): void {
   const { difficultyLevel: level, elapsed } = state;
 
-  // Spawn within the cloud's ASCII art area
-  const lineH = computeCloudLineH(state.W);
-  const artH = 8 * lineH;
-  const x = cloud.x + (Math.random() - 0.5) * cloud.artW;
-  const y = cloud.y + Math.random() * artH;
+  // Strict topology mode: hazards may only emit from sampled, visible cloud pixels.
+  if (cloud.emitPoints.length === 0) return;
+  const p = cloud.emitPoints[Math.floor(Math.random() * cloud.emitPoints.length)]!;
+  const x = cloud.x + p.dx;
+  const y = cloud.y + p.dy;
 
   const glyphs = HAZARD_GLYPHS[cloud.type];
   const glyph  = glyphs[Math.floor(Math.random() * glyphs.length)];
@@ -1030,6 +1033,8 @@ export function handleKeyUp(state: GameState, key: string): void {
 }
 
 export function handlePointerMove(state: GameState, x: number, y: number): void {
+  // Click-drag behavior: only update target while pointer is held down.
+  if (!state.pointerDown) return;
   state.pointerX = x;
   state.pointerY = y;
 }
