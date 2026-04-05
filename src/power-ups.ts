@@ -37,11 +37,17 @@ const POWER_UP_THRESHOLD = 40;
 const POWER_UP_PICKUP_TTL = 12;
 
 const POWER_UP_WEIGHTS: Array<{ type: PowerUpType; weight: number }> = [
-  { type: 'cd', weight: 14 },
-  { type: 'rm', weight: 13 },
-  { type: 'zip', weight: 12 },
-  { type: 'unzip', weight: 10 },
-  { type: 'sudo', weight: 5 }, // Reduced weight to make it less likely
+  { type: 'cd', weight: 10 },
+  { type: 'rm', weight: 9 },
+  { type: 'zip', weight: 20 }, // Increased weight for higher likelihood
+  { type: 'unzip', weight: 8 },
+  { type: 'sudo', weight: 5 },
+  { type: 'shield', weight: 12 },
+  { type: 'doublePoints', weight: 12 },
+  { type: 'slowMotion', weight: 10 },
+  { type: 'healthBoost', weight: 20 }, // Increased weight for higher likelihood
+  { type: 'hazardClear', weight: 9 },
+  { type: 'findBoost', weight: 8 },
 ];
 
 const POWER_UP_TEXT: Record<PowerUpType, string> = {
@@ -49,8 +55,8 @@ const POWER_UP_TEXT: Record<PowerUpType, string> = {
   rm: 'RM',
   zip: 'ZIP',
   unzip: 'UNZIP',
-  sudo: 'ADMIN',
-  shield: 'SHIELD',
+  sudo: 'SUDO',
+  shield: '<|SHIELD',
   doublePoints: '*2X POINTS*',
   slowMotion: 'SNAIL...',
   healthBoost: '+HEALTH+',

@@ -1777,6 +1777,8 @@ function drawHazards(s: GameState): void {
 
 function powerUpColor(type: GameState['activePowerUp'] | NonNullable<GameState['activePowerUp']>): string {
   switch (type) {
+    case 'zip': return COLORS.brightGreen;
+    case 'sudo': return COLORS.brightRed;
     case 'shield': return COLORS.cyan;
     case 'doublePoints': return COLORS.comboGold;
     case 'slowMotion': return '#84b6ff';
@@ -2160,6 +2162,95 @@ function drawLevelUpBanner(s: GameState): void {
   renderer.drawHRule(ctx, '\u2550', f, size + 4, 0, bannerY + size + 12, W, { color: COLORS.green, alpha: alpha * 0.5 });
 }
 
+function drawPowerUpCommandLine(s: GameState, size: number, y: number, pad: number): void {
+  const entries = (Object.entries(s.powerUpTimers) as Array<[NonNullable<GameState['activePowerUp']>, number]>)
+    .filter(([, timer]) => timer > 0)
+    .sort((a, b) => b[1] - a[1]);
+  if (entries.length === 0) return;
+
+  const cmdFont = fnt(Math.max(9, size - 1), 700);
+  const cmdLineH = size + 2;
+  const prompt = '$ '; // command-line prompt marker
+  const gap = 10;
+  const labels = entries.map(([type, timer]) => ({
+    type,
+    raw: `${powerUpLabel(type)} ${timer.toFixed(1)}s`,
+  }));
+
+  const maxLabelChars = Math.max(...labels.map((it) => it.raw.length));
+  const tokens = labels.map((it) => ({
+    type: it.type,
+    text: `[${it.raw.padEnd(maxLabelChars, ' ')}]`,
+  }));
+
+  const promptW = renderer.measureWidth(prompt, cmdFont);
+  const tokenWidths = tokens.map((it) => renderer.measureWidth(it.text, cmdFont));
+  const availableW = Math.max(0, W - pad * 2);
+
+  let visibleCount = tokens.length;
+  let usedW = promptW;
+  for (let i = 0; i < tokens.length; i++) {
+    const nextW = tokenWidths[i]! + (i > 0 ? gap : 0);
+    if (usedW + nextW > availableW) {
+      visibleCount = i;
+      break;
+    }
+    usedW += nextW;
+  }
+
+  if (visibleCount < tokens.length && visibleCount > 0) {
+    const remaining = tokens.length - visibleCount;
+    const moreToken = `[+${remaining}]`;
+    const moreW = renderer.measureWidth(moreToken, cmdFont);
+    while (visibleCount > 0 && usedW + gap + moreW > availableW) {
+      visibleCount -= 1;
+      usedW -= tokenWidths[visibleCount]!;
+      if (visibleCount > 0) usedW -= gap;
+    }
+    usedW += (visibleCount > 0 ? gap : 0) + moreW;
+  }
+
+  const leftX = Math.max(pad, Math.round((W - usedW) / 2));
+  const lineTop = y - 4;
+  const boxPad = 6;
+  ctx.save();
+  ctx.fillStyle = 'rgba(5, 11, 18, 0.88)';
+  ctx.fillRect(leftX - boxPad, lineTop, usedW + boxPad * 2, cmdLineH + 8);
+  ctx.strokeStyle = 'rgba(108, 242, 128, 0.35)';
+  ctx.lineWidth = 1;
+  ctx.strokeRect(leftX - boxPad, lineTop, usedW + boxPad * 2, cmdLineH + 8);
+  ctx.restore();
+
+  renderer.drawText(ctx, prompt, cmdFont, cmdLineH, leftX, y, {
+    color: COLORS.dimGreen,
+    shadowColor: COLORS.green,
+    shadowBlur: 6,
+  });
+
+  let x = leftX + promptW;
+  for (let i = 0; i < visibleCount; i++) {
+    const token = tokens[i]!;
+    if (i > 0) x += gap;
+    renderer.drawText(ctx, token.text, cmdFont, cmdLineH, x, y, {
+      color: powerUpColor(token.type),
+      shadowColor: powerUpColor(token.type),
+      shadowBlur: 9,
+    });
+    x += tokenWidths[i]!;
+  }
+
+  if (visibleCount < tokens.length) {
+    const remaining = tokens.length - visibleCount;
+    const moreToken = `[+${remaining}]`;
+    if (visibleCount > 0) x += gap;
+    renderer.drawText(ctx, moreToken, cmdFont, cmdLineH, x, y, {
+      color: COLORS.dim,
+      shadowColor: COLORS.dim,
+      shadowBlur: 4,
+    });
+  }
+}
+
 // HUD
 function drawHUD(s: GameState): void {
   const size = sz(W / 70, 10, 14);
@@ -2202,16 +2293,7 @@ function drawHUD(s: GameState): void {
   const lvlW = renderer.measureWidth(lvl, f);
   renderer.drawText(ctx, lvl, f, size + 2, W - pad - lvlW, textY, { color: COLORS.red, shadowColor: COLORS.red, shadowBlur: 10 });
 
-  if (s.activePowerUp && s.powerUpTimer > 0) {
-    const pLabel = `${powerUpLabel(s.activePowerUp)} ${s.powerUpTimer.toFixed(1)}s`;
-    const pw = renderer.measureWidth(pLabel, fnt(size - 1, 700));
-    renderer.drawText(ctx, pLabel, fnt(size - 1, 700), size + 2, W / 2 - pw / 2, textY + size + 2, {
-      color: powerUpColor(s.activePowerUp),
-      shadowColor: powerUpColor(s.activePowerUp),
-      shadowBlur: 9,
-      alpha: 0.95,
-    });
-  }
+  drawPowerUpCommandLine(s, size, textY + size + 2, pad);
 }
 
 function drawScanlines(alpha: number): void {
