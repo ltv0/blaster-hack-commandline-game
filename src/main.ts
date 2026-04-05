@@ -1,3 +1,7 @@
+// Expose for game.ts
+if (typeof window !== 'undefined') {
+  (window as any).initParticleSystem = initParticleSystem;
+}
 import './style.css';
 import {
   createInitialState,
@@ -49,7 +53,7 @@ function resize(): void {
     // and sampling scales match the new window dimensions. This keeps
     // the cloud topology and emit-point sampling aligned with the
     // visible canvas when the window is resized larger or smaller.
-    initParticleSystem();
+    initParticleSystem(state);
   }
 }
 
@@ -508,9 +512,11 @@ function buildBackgroundCircleObstacles(s: GameState): BgCircleObstacle[] {
 // ─── State + loop ─────────────────────────────────────────────────────────────
 let state: GameState;
 function init(): void {
-  resize(); buildStars(W, H); buildAsciiBackground();
-  initParticleSystem();
+  resize();
+  buildStars(W, H);
+  buildAsciiBackground();
   state = createInitialState(W, H);
+  initParticleSystem(state);
   bindEvents();
   requestAnimationFrame(loop);
 }
@@ -876,15 +882,15 @@ function splatFieldStamp(centerX: number, centerY: number, stamp: FieldStamp, ty
   }
 }
 
-function initParticleSystem(): void {
+function initParticleSystem(s: GameState): void {
   // Size the source-field canvas to the current window width and a
   // sensible fraction of the window height so the cloud sampling region
   // grows/shrinks with the viewport. Previously this was a fixed 170px
   // which caused the cloud sampling to be clipped when the window was
   // expanded.
-  CANVAS_W = W;
+  CANVAS_W = s.W;
   // Target ~22% of window height, clamped to a reasonable min/max.
-  CANVAS_H = Math.round(Math.max(120, Math.min(Math.round(H * 0.22), 420)));
+  CANVAS_H = Math.round(Math.max(120, Math.min(Math.round(s.H * 0.22), 420)));
   FIELD_COLS = CANVAS_W * FIELD_OVERSAMPLE;
   FIELD_ROWS = CANVAS_H * FIELD_OVERSAMPLE;
   FIELD_SCALE_X = FIELD_COLS / CANVAS_W;
@@ -892,7 +898,7 @@ function initParticleSystem(): void {
   // assign particle types using the central weights map (easy to change/extend)
   // Update weights based on current level
   // Use difficultyLevel + 1 if defined, else 1 (difficultyLevel starts at 0 for level 1)
-  const level = state && typeof state.difficultyLevel === 'number' ? state.difficultyLevel + 1 : 1;
+  const level = typeof s.difficultyLevel === 'number' ? s.difficultyLevel + 1 : 1;
   updateParticleTypeWeights(level);
   particles = Array.from({ length: PARTICLE_N }, () => {
     const sampled = sampleTypeFromWeights(PARTICLE_TYPE_WEIGHTS) as ParticleType;

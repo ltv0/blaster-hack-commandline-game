@@ -910,6 +910,19 @@ function updatePlaying(state: GameState, dt: number): void {
     state.levelUpTimer = 2.5;
     state.levelUpText = `// LEVEL ${newLevel + 1} STORM INTENSIFYING //`;
     state.audioEvents.push({ kind: 'levelup' });
+    // Rebuild the particle field and update cloud visuals for the new level
+    // Clear and respawn clouds to match new level data
+    state.clouds = [];
+    state.cloudIdCounter = 0;
+    maintainClouds(state);
+    if (typeof window !== 'undefined') {
+      if (typeof (window as any).initParticleSystem === 'function') {
+        (window as any).initParticleSystem(state);
+      }
+      if (typeof (window as any).updateCloudEmitPoints === 'function') {
+        (window as any).updateCloudEmitPoints(state);
+      }
+    }
   }
   if (state.levelUpTimer > 0) state.levelUpTimer -= dt;
 
