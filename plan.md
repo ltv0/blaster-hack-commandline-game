@@ -175,25 +175,25 @@ Set-ExecutionPolicy -Scope CurrentUser RemoteSigned
 
 #### High Priority
 - [X] BASIC MVP
-- [ ]Visual uplift
-- [ ] Cloud wrap-around mechanics (infinite scroll or spawning new clouds as the clouds leave)
-- [ ] BACKGROUND AND GORUND SHOULD BE DISTINGQUISHED BY TEXT INSTEAD OF BEING A BLANK CANVAS
-- [ ] Background ASCII terrain (both ground and sky)
-- [ ] Object trail effects (visual effects. We have some motion trails already but they suck)
-- [ ] improving stick chungus
+- [X] Visual uplift
+- [X] Cloud wrap-around mechanics (infinite scroll or spawning new clouds as the clouds leave)
+- [X] BACKGROUND AND GORUND SHOULD BE DISTINGQUISHED BY TEXT INSTEAD OF BEING A BLANK CANVAS
+- [X] Background ASCII terrain (both ground and sky)
+- [X] Object trail effects (visual effects. We have some motion trails already but they suck)
+- [X] improving stick chungus
 - [ ] Boss hazards (these should spawn every 5 rounds)
 
 #### Medium Priority
-- [ ] Power-up system 
+- [X] Power-up system 
 - [ ] Hazard variants (acid rain, thunder, blizzards? Maybe add some random gameplay differences per each cloud.)
 - [ ] Milestone rewards (idk something for progression)
-- [ ] Sound effects
-- [ ] Background music
+- [X] Sound effects
+- [X] No Background music
 - [ ] Screen shake
-- [ ] Particle variety (we actually have this partially implemented already.)
+- [X] Particle variety (we actually have this partially implemented already.)
 
 #### Low Priority
-- [ ] Performance optimization (idk it sucks to run on my pc)
+- [X] Performance optimization (idk it sucks to run on my pc)
 - [ ] Mobile touch improvements
 - [ ] Settings menu
 - [ ] Leaderboards (idk how to hook this up online.)
