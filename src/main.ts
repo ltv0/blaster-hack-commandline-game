@@ -525,14 +525,30 @@ function buildBackgroundCircleObstacles(s: GameState): BgCircleObstacle[] {
 
   // ── Traveler ─────────────────────────────────────────────────────────────
   const travelerSize = sz(W / 40, 14, 22);
-  out.push({
+    // Head — bottom-biased so text can wrap above
+    const headTopY = s.travelerY;
+    const headHeight = travelerSize * 1.2;
+
+    const headCy = headTopY + headHeight * 0.65;   // shift DOWN (key change)
+    const headRy = headHeight * 0.35;              // only block lower portion
+
+    out.push({
     cx: s.travelerX,
-    cy: s.travelerY + travelerSize * 0.32,
-    rx: travelerSize * 0.74,
-    ry: travelerSize * 0.66,
+    cy: headCy,
+    rx: travelerSize * 0.7,
+    ry: headRy,
     hPad: 0,
     vPad: 0,
-  });
+    });
+
+    out.push({
+    cx: s.travelerX,
+    cy: s.travelerY + travelerSize * 0.25,
+    rx: travelerSize * 0.4,
+    ry: travelerSize * 0.25,
+    hPad: 0,
+    vPad: 0,
+    });
   out.push({
     cx: s.travelerX,
     cy: s.travelerY + travelerSize * 1.45,
