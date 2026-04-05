@@ -2168,10 +2168,7 @@ function drawPowerUpCommandLine(s: GameState, size: number, y: number, pad: numb
     .sort((a, b) => b[1] - a[1]);
   if (entries.length === 0) return;
 
-  const cmdFont = fnt(Math.max(9, size - 1), 700);
-  const cmdLineH = size + 2;
   const prompt = '$ '; // command-line prompt marker
-  const gap = 10;
   const labels = entries.map(([type, timer]) => ({
     type,
     raw: `${powerUpLabel(type)} ${timer.toFixed(1)}s`,
@@ -2183,32 +2180,66 @@ function drawPowerUpCommandLine(s: GameState, size: number, y: number, pad: numb
     text: `[${it.raw.padEnd(maxLabelChars, ' ')}]`,
   }));
 
-  const promptW = renderer.measureWidth(prompt, cmdFont);
-  const tokenWidths = tokens.map((it) => renderer.measureWidth(it.text, cmdFont));
   const availableW = Math.max(0, W - pad * 2);
 
-  let visibleCount = tokens.length;
-  let usedW = promptW;
-  for (let i = 0; i < tokens.length; i++) {
-    const nextW = tokenWidths[i]! + (i > 0 ? gap : 0);
-    if (usedW + nextW > availableW) {
-      visibleCount = i;
-      break;
+  const maxFontSize = Math.max(9, size);
+  const minFontSize = 7;
+  type CmdLayout = {
+    fontSize: number;
+    cmdFont: string;
+    cmdLineH: number;
+    gap: number;
+    promptW: number;
+    tokenWidths: number[];
+    visibleCount: number;
+    usedW: number;
+  };
+
+  const buildLayout = (fontSize: number): CmdLayout => {
+    const cmdFont = fnt(fontSize, 700);
+    const cmdLineH = Math.max(10, Math.round(fontSize * 1.2));
+    const gap = Math.max(6, Math.round(fontSize * 0.75));
+    const promptW = renderer.measureWidth(prompt, cmdFont);
+    const tokenWidths = tokens.map((it) => renderer.measureWidth(it.text, cmdFont));
+
+    let visibleCount = tokens.length;
+    let usedW = promptW;
+    for (let i = 0; i < tokens.length; i++) {
+      const nextW = tokenWidths[i]! + (i > 0 ? gap : 0);
+      if (usedW + nextW > availableW) {
+        visibleCount = i;
+        break;
+      }
+      usedW += nextW;
     }
-    usedW += nextW;
+
+    if (visibleCount < tokens.length && visibleCount > 0) {
+      const remaining = tokens.length - visibleCount;
+      const moreToken = `[+${remaining}]`;
+      const moreW = renderer.measureWidth(moreToken, cmdFont);
+      while (visibleCount > 0 && usedW + gap + moreW > availableW) {
+        visibleCount -= 1;
+        usedW -= tokenWidths[visibleCount]!;
+        if (visibleCount > 0) usedW -= gap;
+      }
+      usedW += (visibleCount > 0 ? gap : 0) + moreW;
+    }
+
+    return { fontSize, cmdFont, cmdLineH, gap, promptW, tokenWidths, visibleCount, usedW };
+  };
+
+  let bestLayout = buildLayout(maxFontSize);
+  for (let fontSize = maxFontSize - 1; fontSize >= minFontSize; fontSize--) {
+    const layout = buildLayout(fontSize);
+    if (
+      layout.visibleCount > bestLayout.visibleCount ||
+      (layout.visibleCount === bestLayout.visibleCount && layout.fontSize > bestLayout.fontSize)
+    ) {
+      bestLayout = layout;
+    }
   }
 
-  if (visibleCount < tokens.length && visibleCount > 0) {
-    const remaining = tokens.length - visibleCount;
-    const moreToken = `[+${remaining}]`;
-    const moreW = renderer.measureWidth(moreToken, cmdFont);
-    while (visibleCount > 0 && usedW + gap + moreW > availableW) {
-      visibleCount -= 1;
-      usedW -= tokenWidths[visibleCount]!;
-      if (visibleCount > 0) usedW -= gap;
-    }
-    usedW += (visibleCount > 0 ? gap : 0) + moreW;
-  }
+  const { cmdFont, cmdLineH, gap, promptW, tokenWidths, visibleCount, usedW } = bestLayout;
 
   const leftX = Math.max(pad, Math.round((W - usedW) / 2));
   const lineTop = y - 4;
@@ -2306,34 +2337,39 @@ function drawScanlines(alpha: number): void {
 function drawGameOver(s: GameState): void {
   ctx.fillStyle = '#060c14'; ctx.globalAlpha = 0.88; ctx.fillRect(0, 0, W, H); ctx.globalAlpha = 1;
   const cx   = W / 2;
-  const size = sz(W / 45, 12, 18);
-  const lh   = size + 6;
-  // Shorten the process killed box
-  const boxW = Math.min(600, W - 20);
-  const boxH = 220;
+
+  // Adjust size dynamically based on screen width
+  const scaleFactor = Math.min(W / 800, 1); // Scale down for smaller screens, max at 800px width
+  const size = sz(W / 45 * scaleFactor, 12 * scaleFactor, 18 * scaleFactor);
+  const lh   = size + 6 * scaleFactor;
+
+  // Adjust box dimensions dynamically
+  const boxW = Math.min(600 * scaleFactor, W - 20);
+  const boxH = 220 * scaleFactor;
   const boxX = cx - boxW / 2;
   const boxY = H / 2 - boxH / 2;
+
   ctx.fillStyle = 'rgba(6,12,20,0.92)'; ctx.fillRect(boxX, boxY, boxW, boxH);
   renderer.drawGlyphBox(ctx, fnt(size), lh, boxX, boxY, boxW, boxH, { color: COLORS.red, alpha: 0.8 });
-  renderer.drawText(ctx, '[ PROCESS KILLED ]', fnt(size + 4, 700), lh, cx, boxY + 20, { color: COLORS.red, shadowColor: COLORS.brightRed, shadowBlur: 22, align: 'center' });
-  renderer.drawHRule(ctx, '\u2550', fnt(size - 2), lh, boxX + 14, boxY + 60, boxW - 28, { color: COLORS.dimGreen, alpha: 0.6 });
-  renderer.drawText(ctx, `FINAL SCORE: ${s.score}`, fnt(size, 700), lh, cx, boxY + 76, { color: COLORS.amber, shadowColor: COLORS.amber, shadowBlur: 10, align: 'center' });
-  renderer.drawText(ctx, `SURVIVED: ${Math.floor(s.elapsed)}s   LEVEL REACHED: ${s.difficultyLevel + 1}`, fnt(size - 1), lh, cx, boxY + 104, { color: COLORS.dim, align: 'center' });
-  let comboY = boxY + 126;
+  renderer.drawText(ctx, '[ PROCESS KILLED ]', fnt(size + 4 * scaleFactor, 700), lh, cx, boxY + 20 * scaleFactor, { color: COLORS.red, shadowColor: COLORS.brightRed, shadowBlur: 22, align: 'center' });
+  renderer.drawHRule(ctx, '\u2550', fnt(size - 2 * scaleFactor), lh, boxX + 14 * scaleFactor, boxY + 60 * scaleFactor, boxW - 28 * scaleFactor, { color: COLORS.dimGreen, alpha: 0.6 });
+  renderer.drawText(ctx, `FINAL SCORE: ${s.score}`, fnt(size, 700), lh, cx, boxY + 76 * scaleFactor, { color: COLORS.amber, shadowColor: COLORS.amber, shadowBlur: 10, align: 'center' });
+  renderer.drawText(ctx, `SURVIVED: ${Math.floor(s.elapsed)}s   LEVEL REACHED: ${s.difficultyLevel + 1}`, fnt(size - 1 * scaleFactor), lh, cx, boxY + 104 * scaleFactor, { color: COLORS.dim, align: 'center' });
+
+  let comboY = boxY + 126 * scaleFactor;
   let promptY;
   if (s.bestCombo > 1) {
-    renderer.drawText(ctx, `BEST COMBO: \xd7${s.bestCombo}`, fnt(size - 1), lh, cx, comboY, { color: COLORS.cyan, align: 'center' });
-    // Move prompt lower if combo is present
-    promptY = comboY + lh + 30; // Increased offset for lower position
+    renderer.drawText(ctx, `BEST COMBO: \xd7${s.bestCombo}`, fnt(size - 1 * scaleFactor), lh, cx, comboY, { color: COLORS.cyan, align: 'center' });
+    promptY = comboY + lh + 30 * scaleFactor;
   } else {
-    // Center the prompt between the green line and the SURVIVED line, but a bit lower
-    const survivedY = boxY + 104;
-    const greenLineY = boxY + 154;
-    promptY = survivedY + (greenLineY - survivedY) * 0.7; // Move lower
+    const survivedY = boxY + 104 * scaleFactor;
+    const greenLineY = boxY + 154 * scaleFactor;
+    promptY = survivedY + (greenLineY - survivedY) * 0.7;
   }
-  renderer.drawHRule(ctx, '\u2550', fnt(size - 2), lh, boxX + 14, boxY + 154, boxW - 28, { color: COLORS.dimGreen, alpha: 0.6 });
+
+  renderer.drawHRule(ctx, '\u2550', fnt(size - 2 * scaleFactor), lh, boxX + 14 * scaleFactor, boxY + 154 * scaleFactor, boxW - 28 * scaleFactor, { color: COLORS.dimGreen, alpha: 0.6 });
   if (Math.floor(Date.now() / 500) % 2 === 0) {
-    renderer.drawText(ctx, '> Press R / ENTER / tap to restart', fnt(size - 1, 700), lh, cx, promptY, { color: COLORS.green, shadowColor: COLORS.green, shadowBlur: 8, align: 'center' });
+    renderer.drawText(ctx, '> Press R / ENTER / tap to restart', fnt(size - 1 * scaleFactor, 700), lh, cx, promptY, { color: COLORS.green, shadowColor: COLORS.green, shadowBlur: 8, align: 'center' });
   }
 }
 

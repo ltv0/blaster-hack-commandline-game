@@ -22,6 +22,7 @@ export interface PowerUpPickup {
   age: number;
   ttl: number;
   phase: number;
+  update?: (dt: number) => void;
 }
 
 export interface PowerUpRuntime {
@@ -37,17 +38,17 @@ const POWER_UP_THRESHOLD = 40;
 const POWER_UP_PICKUP_TTL = 12;
 
 const POWER_UP_WEIGHTS: Array<{ type: PowerUpType; weight: number }> = [
-  { type: 'cd', weight: 10 },
-  { type: 'rm', weight: 9 },
+  { type: 'cd', weight: 14 },
+  { type: 'rm', weight: 8 },
   { type: 'zip', weight: 20 }, // Increased weight for higher likelihood
   { type: 'unzip', weight: 8 },
   { type: 'sudo', weight: 5 },
   { type: 'shield', weight: 12 },
   { type: 'doublePoints', weight: 12 },
   { type: 'slowMotion', weight: 10 },
-  { type: 'healthBoost', weight: 20 }, // Increased weight for higher likelihood
-  { type: 'hazardClear', weight: 9 },
-  { type: 'findBoost', weight: 8 },
+  { type: 'healthBoost', weight: 8 }, // Reduced weight for lower likelihood
+  { type: 'hazardClear', weight: 6 },
+  { type: 'findBoost', weight: 10 },
 ];
 
 const POWER_UP_TEXT: Record<PowerUpType, string> = {
@@ -150,9 +151,14 @@ export function activatePowerUp(state: GameState, type: PowerUpType, runtime: Po
   state.powerUpFlashTimer = Math.max(state.powerUpFlashTimer, 0.28);
 
   if (isTimedPowerUp(type)) {
-    const current = state.powerUpTimers[type] ?? 0;
-    const next = current + powerUpDuration(type);
-    state.powerUpTimers[type] = next;
+    if (type === 'sudo') {
+      // Reset the timer for 'sudo' instead of stacking
+      state.powerUpTimers[type] = powerUpDuration(type);
+    } else {
+      const current = state.powerUpTimers[type] ?? 0;
+      const next = current + powerUpDuration(type);
+      state.powerUpTimers[type] = next;
+    }
     setTimedPowerUpState(state, type, true);
   } else {
     switch (type) {
@@ -282,4 +288,38 @@ export function updatePowerUpTimers(state: GameState, dt: number): void {
   if (state.powerUpFlashTimer > 0) {
     state.powerUpFlashTimer = Math.max(0, state.powerUpFlashTimer - dt);
   }
+}
+
+export function spawnBouncingPowerUp(state: GameState, type: PowerUpType, x: number, y: number): void {
+  const id = state.powerUpPickupIdCounter++;
+  const baseY = y;
+  const bounceInterval = 0.5 + Math.random() * 1.5; // Random interval between 0.5s and 2s
+  const bounceAmplitude = 20 + Math.random() * 30; // Random bounce height
+  const bounceSpeed = 2 + Math.random() * 3; // Random horizontal speed
+  let direction = Math.random() < 0.5 ? -1 : 1; // Random initial direction
+
+  const powerUp: PowerUpPickup = {
+    id,
+    x,
+    y,
+    baseY,
+    type,
+    age: 0,
+    ttl: POWER_UP_PICKUP_TTL,
+    phase: Math.random() * Math.PI * 2,
+    update: (dt: number) => {
+      powerUp.age += dt;
+      powerUp.phase += dt * Math.PI * 2 / bounceInterval;
+      powerUp.y = baseY + Math.sin(powerUp.phase) * bounceAmplitude;
+      powerUp.x += direction * bounceSpeed * dt;
+
+      // Reverse direction if it hits the screen edges
+      if (powerUp.x < 0 || powerUp.x > state.W) {
+        direction *= -1;
+        powerUp.x = Math.max(0, Math.min(state.W, powerUp.x));
+      }
+    },
+  };
+
+  state.powerUpPickups.push(powerUp);
 }

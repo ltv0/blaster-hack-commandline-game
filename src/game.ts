@@ -1198,7 +1198,7 @@ export function update(state: GameState, dt: number): void {
 
 function updateBoot(state: GameState, dt: number): void {
   state.bootTimer += dt;
-  const lineInterval = 0.22;
+  const lineInterval = 0.28; // Increased interval for slower boot
   const targetIndex = Math.min(
     Math.floor(state.bootTimer / lineInterval),
     BOOT_LINES.length
