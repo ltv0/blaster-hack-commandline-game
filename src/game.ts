@@ -516,22 +516,23 @@ function computeCloudBottom(state: Pick<GameState, 'W' | 'H' | 'clouds' | 'hudBa
 export function computeUmbrellaYBounds(state: Pick<GameState, 'W' | 'H' | 'clouds' | 'hudBarHeight'>): { minY: number; maxY: number } {
   const umbrellaLineH = computeUmbrellaLineH(state.W);
   const totalUmbrellaLines = UMBRELLA_CANOPY_LINES + UMBRELLA_HANDLE_LINES + UMBRELLA_FOOT_LINES;
+  const isPortrait = state.H > state.W;
 
-  let cloudBottom = Infinity;
+  let lowestCloudBottom = -Infinity;
   for (const cloud of state.clouds) {
-    cloudBottom = Math.min(cloudBottom, computeCloudBottom(state, cloud));
+    lowestCloudBottom = Math.max(lowestCloudBottom, computeCloudBottom(state, cloud));
   }
 
-  if (!Number.isFinite(cloudBottom)) {
-    cloudBottom = Math.max(0, state.H * 0.12);
+  if (!Number.isFinite(lowestCloudBottom)) {
+    lowestCloudBottom = Math.max(0, state.H * (isPortrait ? 0.16 : 0.12));
   }
 
   const groundY = Math.round(state.H * GROUND_Y_RATIO);
-  const visibleCloudGap = Math.max(8, Math.round(umbrellaLineH * 1.1));
+  const visibleCloudGap = Math.max(isPortrait ? 14 : 8, Math.round(umbrellaLineH * (isPortrait ? 1.65 : 1.15)));
   return {
     // umbrellaY maps to one line below the rendered top (startY = umbrellaY - lineH).
-    // Add both the umbrella top-line offset and a real visible gap below the clouds.
-    minY: Math.max(0, cloudBottom + umbrellaLineH + visibleCloudGap),
+    // Stay below the lowest visible cloud with extra portrait clearance.
+    minY: Math.max(0, lowestCloudBottom + umbrellaLineH + visibleCloudGap),
     // bottom of the rendered umbrella sits (totalLines - 1) lines below umbrellaY
     maxY: groundY - umbrellaLineH * (totalUmbrellaLines - 2),
   };

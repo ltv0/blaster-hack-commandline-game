@@ -714,9 +714,10 @@ function updateUmbrellaPhysics(s: GameState, dt: number): void {
   let pressureForce = 0;
   const size = Math.max(9, Math.min(14, s.W / 75)) * WEATHER_FONT_SCALE;
   const lineH = Math.round(size * 1.35);
-  const hudH = Math.max(10, Math.min(14, s.W / 70)) + 20;
-  const startYFloor = hudH + 6;
+  const hudH = Number.isFinite(s.hudBarHeight) ? s.hudBarHeight : (Math.max(10, Math.min(14, s.W / 70)) + 20);
+  const startYFloor = hudH + 5;
   const cloudArtHeight = CLOUD_ART_LINES * lineH;
+  const isPortrait = s.H > s.W;
 
   for (const cloud of s.clouds) {
     const startY = Math.max(startYFloor, cloud.y);
@@ -724,10 +725,10 @@ function updateUmbrellaPhysics(s: GameState, dt: number): void {
 
     if (s._umbrellaActualY !== undefined) {
       const dist = s._umbrellaActualY - bottom;
-      const influence = 120;
+      const influence = isPortrait ? 150 : 120;
 
       if (dist < influence) {
-        const strength = 1800;
+        const strength = isPortrait ? 2200 : 1800;
         const falloff = 1 - Math.max(0, dist) / influence;
         pressureForce += strength * falloff;
       }
