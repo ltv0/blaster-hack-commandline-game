@@ -103,11 +103,34 @@ export interface Cloud {
   emitPoints: Array<{ dx: number; dy: number }>;
 }
 
+export type PowerUpType =
+  | 'shield'
+  | 'doublePoints'
+  | 'slowMotion'
+  | 'healthBoost'
+  | 'hazardClear'
+  | 'clearScreen'
+  | 'findBoost'
+  | 'pipePoints'
+  | 'killHazards';
+
+export interface PowerUpPickup {
+  id: number;
+  x: number;
+  y: number;
+  baseY: number;
+  type: PowerUpType;
+  age: number;
+  ttl: number;
+  phase: number;
+}
+
 export type AudioEvent =
   | { kind: 'block'; hazardType: 'rain' | 'snow' | 'hail' }
   | { kind: 'hit' }
   | { kind: 'levelup' }
-  | { kind: 'death' };
+  | { kind: 'death' }
+  | { kind: 'powerup' };
 
 export interface GameState {
   phase: GamePhase;
@@ -168,6 +191,10 @@ export interface GameState {
   heartExplosions: HeartExplosion[];
   heartExplosionIdCounter: number;
 
+  // power-up pickups
+  powerUpPickups: PowerUpPickup[];
+  powerUpPickupIdCounter: number;
+
   // scroll / parallax
   groundOffset: number;
   bgStarOffset: number;
@@ -183,6 +210,18 @@ export interface GameState {
   hp: number;
   maxHp: number;
   hitCooldown: number;
+
+  // power-up status
+  activePowerUp: PowerUpType | null;
+  powerUpTimer: number;
+  powerUpText: string;
+  powerUpTextTimer: number;
+  powerUpFlashTimer: number;
+  shieldActive: boolean;
+  doublePointsActive: boolean;
+  slowMotionActive: boolean;
+  findBoostActive: boolean;
+  pipePointsActive: boolean;
 
   // difficulty
   elapsed: number;
@@ -271,6 +310,32 @@ export const COLORS = {
 };
 
 const GROUND_Y_RATIO = 0.91;
+const POWER_UP_THRESHOLD = 40;
+const POWER_UP_PICKUP_TTL = 12;
+
+const POWER_UP_WEIGHTS: Array<{ type: PowerUpType; weight: number }> = [
+  { type: 'shield', weight: 16 },
+  { type: 'doublePoints', weight: 16 },
+  { type: 'slowMotion', weight: 14 },
+  { type: 'healthBoost', weight: 12 },
+  { type: 'hazardClear', weight: 11 },
+  { type: 'clearScreen', weight: 9 },
+  { type: 'findBoost', weight: 9 },
+  { type: 'pipePoints', weight: 8 },
+  { type: 'killHazards', weight: 5 },
+];
+
+const POWER_UP_TEXT: Record<PowerUpType, string> = {
+  shield: 'SHIELD',
+  doublePoints: '*2X POINTS*',
+  slowMotion: 'SNAIL...',
+  healthBoost: '+HEALTH+',
+  hazardClear: '!CLEAR!',
+  clearScreen: 'CLS',
+  findBoost: 'FIND',
+  pipePoints: 'PIPE',
+  killHazards: 'KILL',
+};
 
 // ─── Init ─────────────────────────────────────────────────────────────────────
 
@@ -325,6 +390,9 @@ export function createInitialState(W: number, H: number): GameState {
     heartExplosions: [],
     heartExplosionIdCounter: 0,
 
+    powerUpPickups: [],
+    powerUpPickupIdCounter: 0,
+
     groundOffset: 0,
     bgStarOffset: 0,
 
@@ -337,6 +405,17 @@ export function createInitialState(W: number, H: number): GameState {
     hp: 5,
     maxHp: 5,
     hitCooldown: 0,
+
+    activePowerUp: null,
+    powerUpTimer: 0,
+    powerUpText: '',
+    powerUpTextTimer: 0,
+    powerUpFlashTimer: 0,
+    shieldActive: false,
+    doublePointsActive: false,
+    slowMotionActive: false,
+    findBoostActive: false,
+    pipePointsActive: false,
 
     elapsed: 0,
     difficultyLevel: 0,
@@ -643,100 +722,90 @@ function spawnCloudHitBurst(
 }
 
 function hazardIntersectsUmbrella(
+  state: GameState,
   prevX: number,
   prevY: number,
   x: number,
   y: number,
-  left: number,
-  top: number,
-  right: number,
-  bottom: number
 ): boolean {
-  const segmentLeft = Math.min(prevX, x);
-  const segmentRight = Math.max(prevX, x);
-  const segmentTop = Math.min(prevY, y);
-  const segmentBottom = Math.max(prevY, y);
-  if (segmentRight < left || segmentLeft > right || segmentBottom < top || segmentTop > bottom) return false;
+  if (pointHitsUmbrella(state, x, y) || pointHitsUmbrella(state, prevX, prevY)) return true;
 
-  if (x >= left && x <= right && y >= top && y <= bottom) return true;
-  if (prevX >= left && prevX <= right && prevY >= top && prevY <= bottom) return true;
-
-  const intersects = (
-    ax: number, ay: number, bx: number, by: number,
-    cx: number, cy: number, dx: number, dy: number
-  ): boolean => {
-    const cross = (px: number, py: number, qx: number, qy: number, rx: number, ry: number): number =>
-      (qx - px) * (ry - py) - (qy - py) * (rx - px);
-    const onOppositeSides = (
-      p1: number, p2: number,
-      p3: number, p4: number
-    ): boolean => (p1 === 0 || p2 === 0 || (p1 > 0) !== (p2 > 0)) && (p3 === 0 || p4 === 0 || (p3 > 0) !== (p4 > 0));
-
-    const d1 = cross(ax, ay, bx, by, cx, cy);
-    const d2 = cross(ax, ay, bx, by, dx, dy);
-    const d3 = cross(cx, cy, dx, dy, ax, ay);
-    const d4 = cross(cx, cy, dx, dy, bx, by);
-    return onOppositeSides(d1, d2, d3, d4);
-  };
-
-  return (
-    intersects(prevX, prevY, x, y, left, top, right, top) ||
-    intersects(prevX, prevY, x, y, right, top, right, bottom) ||
-    intersects(prevX, prevY, x, y, left, bottom, right, bottom) ||
-    intersects(prevX, prevY, x, y, left, top, left, bottom)
-  );
+  const dx = x - prevX;
+  const dy = y - prevY;
+  const dist = Math.hypot(dx, dy);
+  const sampleStep = Math.max(3, computeUmbrellaLineH(state.W) * 0.28);
+  const steps = Math.max(2, Math.ceil(dist / sampleStep));
+  for (let i = 1; i <= steps; i++) {
+    const t = i / steps;
+    const sx = prevX + dx * t;
+    const sy = prevY + dy * t;
+    if (pointHitsUmbrella(state, sx, sy)) return true;
+  }
+  return false;
 }
 
 function computeUmbrellaImpactPoint(
+  state: GameState,
   prevX: number,
   prevY: number,
   x: number,
   y: number,
-  left: number,
-  top: number,
-  right: number,
-  bottom: number,
 ): { x: number; y: number } {
-  const hits: Array<{ t: number; x: number; y: number }> = [];
+  const dx = x - prevX;
+  const dy = y - prevY;
+  const dist = Math.hypot(dx, dy);
+  const sampleStep = Math.max(2, computeUmbrellaLineH(state.W) * 0.2);
+  const steps = Math.max(3, Math.ceil(dist / sampleStep));
+  for (let i = 0; i <= steps; i++) {
+    const t = i / steps;
+    const sx = prevX + dx * t;
+    const sy = prevY + dy * t;
+    if (pointHitsUmbrella(state, sx, sy)) return { x: sx, y: sy };
+  }
+  return { x, y };
+}
 
-  if (y !== prevY) {
-    const tTop = (top - prevY) / (y - prevY);
-    const xTop = prevX + (x - prevX) * tTop;
-    if (tTop >= 0 && tTop <= 1 && xTop >= left && xTop <= right) {
-      hits.push({ t: tTop, x: xTop, y: top });
-    }
+function umbrellaHitGeometry(state: GameState): {
+  cx: number;
+  halfW: number;
+  canopyTop: number;
+  canopyBottom: number;
+  handleBottom: number;
+  sidePad: number;
+  handlePad: number;
+} {
+  const lineH = state.umbrellaArtLineH > 0 ? state.umbrellaArtLineH : computeUmbrellaLineH(state.W);
+  const width = state.umbrellaArtWidth > 0 ? state.umbrellaArtWidth : state.umbrellaW;
+  const startX = Number.isFinite(state.umbrellaArtStartX) ? state.umbrellaArtStartX : state.umbrellaX - width / 2;
+  const startY = Number.isFinite(state.umbrellaArtStartY) ? state.umbrellaArtStartY : state.umbrellaY - lineH;
 
-    const tBottom = (bottom - prevY) / (y - prevY);
-    const xBottom = prevX + (x - prevX) * tBottom;
-    if (tBottom >= 0 && tBottom <= 1 && xBottom >= left && xBottom <= right) {
-      hits.push({ t: tBottom, x: xBottom, y: bottom });
-    }
+  const cx = startX + width * 0.5;
+  const halfW = Math.max(18, width * 0.5);
+  const canopyTop = startY + lineH * 0.35;
+  const canopyBottom = startY + UMBRELLA_CANOPY_LINES * lineH;
+  const handleBottom = canopyBottom + UMBRELLA_HANDLE_LINES * lineH;
+  const sidePad = Math.max(2, Math.min(8, state.W * 0.006));
+  const handlePad = Math.max(3, lineH * 0.26);
+
+  return { cx, halfW, canopyTop, canopyBottom, handleBottom, sidePad, handlePad };
+}
+
+function pointHitsUmbrella(state: GameState, x: number, y: number): boolean {
+  const g = umbrellaHitGeometry(state);
+
+  if (y >= g.canopyTop && y <= g.canopyBottom) {
+    const t = (y - g.canopyTop) / Math.max(1, g.canopyBottom - g.canopyTop);
+    // Tapered canopy: narrow near peak, full width at rim.
+    const widthT = 0.22 + 0.78 * t;
+    const halfAtY = g.halfW * widthT + g.sidePad;
+    if (Math.abs(x - g.cx) <= halfAtY) return true;
   }
 
-  if (x !== prevX) {
-    const tLeft = (left - prevX) / (x - prevX);
-    const yLeft = prevY + (y - prevY) * tLeft;
-    if (tLeft >= 0 && tLeft <= 1 && yLeft >= top && yLeft <= bottom) {
-      hits.push({ t: tLeft, x: left, y: yLeft });
-    }
-
-    const tRight = (right - prevX) / (x - prevX);
-    const yRight = prevY + (y - prevY) * tRight;
-    if (tRight >= 0 && tRight <= 1 && yRight >= top && yRight <= bottom) {
-      hits.push({ t: tRight, x: right, y: yRight });
-    }
+  if (y > g.canopyBottom && y <= g.handleBottom) {
+    if (Math.abs(x - g.cx) <= g.handlePad) return true;
   }
 
-  if (hits.length > 0) {
-    hits.sort((a, b) => a.t - b.t);
-    return { x: hits[0].x, y: hits[0].y };
-  }
-
-  // Fallback to nearest in-bounds point so a splash is always visible.
-  return {
-    x: Math.max(left, Math.min(right, x)),
-    y: Math.max(top, Math.min(bottom, y)),
-  };
+  return false;
 }
 
 function spawnScorePopup(
@@ -779,6 +848,210 @@ function spawnHeartExplosion(state: GameState, centerX: number, centerY: number)
       color: COLORS.brightRed,
     });
   }
+}
+
+function currentPowerUpLabel(type: PowerUpType): string {
+  return POWER_UP_TEXT[type];
+}
+
+export function powerUpLabel(type: PowerUpType): string {
+  return currentPowerUpLabel(type);
+}
+
+function powerUpDuration(type: PowerUpType): number {
+  switch (type) {
+    case 'shield': return 5;
+    case 'doublePoints': return 10;
+    case 'slowMotion': return 8;
+    case 'findBoost': return 6;
+    case 'pipePoints': return 5;
+    case 'healthBoost': return 1.3;
+    case 'hazardClear': return 1.1;
+    case 'clearScreen': return 1.1;
+    case 'killHazards': return 1.1;
+    default: return 1.2;
+  }
+}
+
+function chooseRandomPowerUp(): PowerUpType {
+  const total = POWER_UP_WEIGHTS.reduce((sum, item) => sum + item.weight, 0);
+  let roll = Math.random() * total;
+  for (const item of POWER_UP_WEIGHTS) {
+    roll -= item.weight;
+    if (roll <= 0) return item.type;
+  }
+  return POWER_UP_WEIGHTS[POWER_UP_WEIGHTS.length - 1]!.type;
+}
+
+function clearHazards(state: GameState): void {
+  state.hazards.length = 0;
+}
+
+function clearScreen(state: GameState): void {
+  state.hazards.length = 0;
+  state.powerUpPickups.length = 0;
+}
+
+function restoreHealth(state: GameState): void {
+  const boost = Math.ceil(state.maxHp * 0.5);
+  state.hp = Math.min(state.maxHp, state.hp + boost);
+}
+
+function killRandomHazard(state: GameState): void {
+  if (state.hazards.length === 0) return;
+  const idx = Math.floor(Math.random() * state.hazards.length);
+  state.hazards.splice(idx, 1);
+}
+
+function moveNearestPickupTowardTraveler(state: GameState): void {
+  if (state.powerUpPickups.length === 0) return;
+  let nearest = state.powerUpPickups[0]!;
+  let bestD2 = Number.POSITIVE_INFINITY;
+  for (const p of state.powerUpPickups) {
+    const dx = p.x - state.travelerX;
+    const dy = p.y - state.travelerY;
+    const d2 = dx * dx + dy * dy;
+    if (d2 < bestD2) {
+      bestD2 = d2;
+      nearest = p;
+    }
+  }
+  nearest.x = state.travelerX + (Math.random() < 0.5 ? -1 : 1) * 38;
+  nearest.y = state.travelerY - 30;
+  nearest.baseY = nearest.y;
+}
+
+function resetTimedPowerUps(state: GameState): void {
+  state.shieldActive = false;
+  state.doublePointsActive = false;
+  state.slowMotionActive = false;
+  state.findBoostActive = false;
+  state.pipePointsActive = false;
+}
+
+function activatePowerUp(state: GameState, type: PowerUpType): void {
+  resetTimedPowerUps(state);
+  state.activePowerUp = type;
+  state.powerUpTimer = powerUpDuration(type);
+  state.powerUpText = currentPowerUpLabel(type);
+  state.powerUpTextTimer = Math.max(1.3, state.powerUpTimer);
+  state.powerUpFlashTimer = Math.max(state.powerUpFlashTimer, 0.28);
+
+  switch (type) {
+    case 'shield':
+      state.shieldActive = true;
+      break;
+    case 'doublePoints':
+      state.doublePointsActive = true;
+      break;
+    case 'slowMotion':
+      state.slowMotionActive = true;
+      break;
+    case 'findBoost':
+      state.findBoostActive = true;
+      moveNearestPickupTowardTraveler(state);
+      break;
+    case 'pipePoints':
+      state.pipePointsActive = true;
+      break;
+    case 'healthBoost':
+      restoreHealth(state);
+      break;
+    case 'hazardClear':
+      clearHazards(state);
+      break;
+    case 'clearScreen':
+      clearScreen(state);
+      break;
+    case 'killHazards':
+      killRandomHazard(state);
+      break;
+  }
+
+  state.audioEvents.push({ kind: 'powerup' });
+}
+
+function maybeSpawnComboPowerUp(state: GameState): void {
+  if (state.combo < POWER_UP_THRESHOLD) return;
+
+  const type = chooseRandomPowerUp();
+  const margin = Math.max(40, Math.min(120, state.W * 0.12));
+  const x = margin + Math.random() * Math.max(1, state.W - margin * 2);
+  const y = state.travelerBaseY - (26 + Math.random() * 46);
+
+  state.powerUpPickups.push({
+    id: state.powerUpPickupIdCounter++,
+    x,
+    y,
+    baseY: y,
+    type,
+    age: 0,
+    ttl: POWER_UP_PICKUP_TTL,
+    phase: Math.random() * Math.PI * 2,
+  });
+
+  state.combo = 0;
+  state.comboTimer = 0;
+  state.powerUpText = currentPowerUpLabel(type);
+  state.powerUpTextTimer = 1.0;
+}
+
+function updatePowerUpPickups(state: GameState, dt: number): void {
+  for (let i = state.powerUpPickups.length - 1; i >= 0; i--) {
+    const pickup = state.powerUpPickups[i]!;
+    pickup.age += dt;
+    pickup.phase += dt * 3.2;
+    pickup.y = pickup.baseY + Math.sin(pickup.phase) * 8;
+
+    if (state.findBoostActive) {
+      const dx = state.travelerX - pickup.x;
+      const dy = (state.travelerY - 24) - pickup.y;
+      const d = Math.hypot(dx, dy);
+      if (d > 0.001) {
+        const pull = Math.min(150 * dt, d);
+        pickup.x += (dx / d) * pull;
+        pickup.y += (dy / d) * pull;
+        pickup.baseY = pickup.y;
+      }
+    }
+
+    if (pickup.age >= pickup.ttl) {
+      state.powerUpPickups.splice(i, 1);
+      continue;
+    }
+
+    const dx = Math.abs(pickup.x - state.travelerX);
+    const dy = Math.abs(pickup.y - (state.travelerY + 12));
+    if (dx < 40 && dy < 42) {
+      state.powerUpPickups.splice(i, 1);
+      activatePowerUp(state, pickup.type);
+    }
+  }
+}
+
+function updatePowerUpTimers(state: GameState, dt: number): void {
+  if (state.powerUpTimer > 0) {
+    state.powerUpTimer = Math.max(0, state.powerUpTimer - dt);
+    if (state.powerUpTimer <= 0) {
+      resetTimedPowerUps(state);
+      state.activePowerUp = null;
+    }
+  }
+
+  if (state.powerUpTextTimer > 0) {
+    state.powerUpTextTimer = Math.max(0, state.powerUpTextTimer - dt);
+    if (state.powerUpTextTimer <= 0 && state.powerUpTimer <= 0) {
+      state.powerUpText = '';
+    }
+  }
+
+  if (state.powerUpFlashTimer > 0) {
+    state.powerUpFlashTimer = Math.max(0, state.powerUpFlashTimer - dt);
+  }
+}
+
+function scoreWithModifiers(state: GameState, basePoints: number): number {
+  return state.doublePointsActive ? basePoints * 2 : basePoints;
 }
 
 /**
@@ -894,6 +1167,7 @@ function updateDead(state: GameState, dt: number): void {
 
 function updatePlaying(state: GameState, dt: number): void {
   state.elapsed += dt;
+  updatePowerUpTimers(state, dt);
 
   // Keep traveler's standing position pinned to the top of static ground.
   state.travelerBaseY = computeTravelerBaseY(state);
@@ -930,7 +1204,7 @@ function updatePlaying(state: GameState, dt: number): void {
   state.scoreTimer += dt;
   if (state.scoreTimer >= 1.0) {
     state.scoreTimer -= 1.0;
-    state.score += 10 + state.difficultyLevel * 2;
+    state.score += scoreWithModifiers(state, 10 + state.difficultyLevel * 2);
   }
 
   // Combo decay
@@ -1012,6 +1286,7 @@ function updatePlaying(state: GameState, dt: number): void {
 
   // Update hazards
   const groundY = computeGroundY(state);
+  const hazardSpeedFactor = state.slowMotionActive ? 0.5 : 1;
   const toRemove = new Set<number>();
 
   for (let i = 0; i < state.hazards.length; i++) {
@@ -1021,18 +1296,14 @@ function updatePlaying(state: GameState, dt: number): void {
     h.prevX = h.x;
     h.prevY = h.y;
 
-    h.x += (h.vx + state.windX * 0.3) * dt;
-    h.y += h.vy * dt;
+    h.x += (h.vx + state.windX * 0.3) * dt * hazardSpeedFactor;
+    h.y += h.vy * dt * hazardSpeedFactor;
 
     // Umbrella collision - no score/combo on direct hit, particles handle scoring
     if (!h.blocked) {
-      const ux0 = state.umbrellaX - state.umbrellaW / 2;
-      const ux1 = state.umbrellaX + state.umbrellaW / 2;
-      const uyTop = state.umbrellaY;
-      const uyBot = state.umbrellaY + state.umbrellaH + 12;
-      if (hazardIntersectsUmbrella(h.prevX, h.prevY, h.x, h.y, ux0, uyTop, ux1, uyBot)) {
+      if (hazardIntersectsUmbrella(state, h.prevX, h.prevY, h.x, h.y)) {
         h.blocked = true;
-        const impact = computeUmbrellaImpactPoint(h.prevX, h.prevY, h.x, h.y, ux0, uyTop, ux1, uyBot);
+        const impact = computeUmbrellaImpactPoint(state, h.prevX, h.prevY, h.x, h.y);
 
         // Always spawn splash particles regardless of hazard type
         const umbrellaImpactScale = h.type === 'snow' ? 1.7 : h.type === 'hail' ? 1.3 : 1.35;
@@ -1066,7 +1337,12 @@ function updatePlaying(state: GameState, dt: number): void {
     if (!h.blocked) {
       const dx = Math.abs(h.x - state.travelerX);
       if (dx < 22 && h.y >= state.travelerY - 8 && h.y <= state.travelerY + 38) {
-        if (state.hitCooldown <= 0) {
+        if (state.pipePointsActive) {
+          const converted = scoreWithModifiers(state, h.type === 'hail' ? 20 : h.type === 'snow' ? 12 : 8);
+          state.score += converted;
+          spawnScorePopup(state, h.x, h.y - 8, converted, Math.max(1, state.combo));
+          state.audioEvents.push({ kind: 'block', hazardType: h.type });
+        } else if (!state.shieldActive && state.hitCooldown <= 0) {
           let damage = 1;
           if (h.type === 'hail') damage = 2;
           state.hp = Math.max(0, state.hp - damage);
@@ -1092,9 +1368,7 @@ function updatePlaying(state: GameState, dt: number): void {
     if (h.y > groundY) {
       // Only spawn if not already blocked (umbrella hit)
       if (!h.blocked) {
-        // Missing a hazard breaks the current combo chain.
-        state.combo = 0;
-        state.comboTimer = 0;
+        // Missing hazards does not break combo; combo decay is timer-based.
         spawnSplash(state, h.x, h.y, h.type, false, 1, h.glyph);
       }
       toRemove.add(i);
@@ -1108,6 +1382,8 @@ function updatePlaying(state: GameState, dt: number): void {
   if (state.deathFlash > 0) state.deathFlash -= dt;
 
   updateParticles(state, dt);
+  updatePowerUpPickups(state, dt);
+  maybeSpawnComboPowerUp(state);
   updateScorePopups(state, dt);
   updateUmbrellaSlides(state, dt);
   updateHeartExplosions(state, dt);
@@ -1122,16 +1398,13 @@ function updateParticles(state: GameState, dt: number): void {
     p.life -= dt / p.maxLife;
     
     // Check if particle hit the umbrella
-    const ux0 = state.umbrellaX - state.umbrellaW / 2;
-    const ux1 = state.umbrellaX + state.umbrellaW / 2;
-    const uyTop = state.umbrellaY;
-    const uyBot = state.umbrellaY + state.umbrellaH + 12;
-    if (p.x >= ux0 && p.x <= ux1 && p.y >= uyTop && p.y <= uyBot) {
+    if (pointHitsUmbrella(state, p.x, p.y)) {
       // Particle hit the umbrella - increment score/combo
       state.combo++;
       state.comboTimer = 0;
       if (state.combo > state.bestCombo) state.bestCombo = state.combo;
-      const pts = (p.type === 'hail' ? 15 : p.type === 'snow' ? 8 : 5) * Math.max(1, state.combo);
+      const basePts = (p.type === 'hail' ? 15 : p.type === 'snow' ? 8 : 5) * Math.max(1, state.combo);
+      const pts = scoreWithModifiers(state, basePts);
       state.score += pts;
       const popupX = p.x + (Math.random() - 0.5) * 36;
       const popupY = Math.max(24, state.umbrellaY - 34);
