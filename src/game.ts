@@ -1298,8 +1298,8 @@ function updatePlaying(state: GameState, dt: number): void {
     state.travelerVY = 0;
   }
 
-  // Difficulty ramp every 5s
-  const newLevel = Math.floor(state.elapsed / 5);
+  // Difficulty ramp every 12s
+  const newLevel = Math.floor(state.elapsed / 12);
   if (newLevel > state.difficultyLevel) {
     state.difficultyLevel = newLevel;
     state.spawnInterval = Math.max(0.22, 1.6 - newLevel * 0.13);
