@@ -318,7 +318,13 @@ function drawAsciiBackground(
   const glowWidth = bgCellW * 1.0;  // tight glow — only 1 char from the edge
 
   // Stream of Lorem Ipsum characters (or fallback to random chars if not loaded)
-  const textChars = SKY_TEXT ? (SKY_TEXT.replace(/\s+/g, ' ').trim() + ' ') : '';
+  let textChars = SKY_TEXT ? (SKY_TEXT.replace(/\s+/g, ' ').trim() + ' ') : '';
+  
+  // Ensure text repeats by duplicating if necessary (fill to at least bgCells.length)
+  if (textChars.length > 0 && textChars.length < bgCells.length) {
+    const repetitions = Math.ceil(bgCells.length / textChars.length) + 1;
+    textChars = textChars.repeat(repetitions);
+  }
 
   for (let row = 0; row < bgRows; row++) {
     const y = row * bgCellH - scrolledY;
@@ -544,6 +550,7 @@ function init(): void {
   resize();
   buildStars(W, H);
   buildAsciiBackground();
+  void loadSkyText();
   state = createInitialState(W, H);
   initParticleSystem(state);
   bindEvents();
