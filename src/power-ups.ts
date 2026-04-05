@@ -151,8 +151,8 @@ export function activatePowerUp(state: GameState, type: PowerUpType, runtime: Po
   state.powerUpFlashTimer = Math.max(state.powerUpFlashTimer, 0.28);
 
   if (isTimedPowerUp(type)) {
-    if (type === 'sudo') {
-      // Reset the timer for 'sudo' instead of stacking
+    if (type === 'sudo' || type === 'zip') {
+      // Reset the timer for 'sudo' and 'zip' instead of stacking
       state.powerUpTimers[type] = powerUpDuration(type);
     } else {
       const current = state.powerUpTimers[type] ?? 0;
