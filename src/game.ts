@@ -206,6 +206,10 @@ export interface GameState {
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
+// Vertical glyphs for rain
+export const CAT_GLYPH = 'C\nA\nT';
+export const DOG_GLYPH = 'D\nO\nG';
+
 export const BOOT_LINES = [
   'BLASTER HACK OS v2.4.1',
   'Initializing weather subsystem...     OK',
@@ -217,7 +221,7 @@ export const BOOT_LINES = [
 ];
 
 export const HAZARD_GLYPHS: Record<string, string[]> = {
-  rain: ['|', '/', '\u254e', '\u254f', '\xa6'],
+  rain: ['|', '/', '\u254e', '\u254f', '\xa6', CAT_GLYPH, DOG_GLYPH],
   snow: ['*', '\u2744', '\u2217', '\u2726', '\u204e'],
   hail: ['\u25c6', '\u25cf', '\u25a0', '\u25c9', '\u25c8'],
 };
@@ -477,7 +481,22 @@ function spawnHazardFromCloud(state: GameState, cloud: Cloud): void {
   const x = cloud.x + p.dx;
   const y = cloud.y + p.dy;
 
-  const glyphs = HAZARD_GLYPHS[cloud.type];
+  let glyphs = HAZARD_GLYPHS[cloud.type];
+  // For rain, mix in CAT/DOG glyphs starting at level 2, increasing their frequency with level
+  if (cloud.type === 'rain') {
+    const baseGlyphs = ['|', '/'];
+    let catDogWeight = 0;
+    if (level >= 2) {
+      // At level 2, 1/6 chance; increases by 1/6 per level up to 4/6
+      catDogWeight = Math.min(4, level - 1); // 1 at lvl2, 2 at lvl3, ... 4 at lvl5+
+    }
+    // Build weighted glyphs array
+    glyphs = [];
+    // Add base rain glyphs (always 2 each)
+    for (let i = 0; i < 2; i++) glyphs.push('|', '/');
+    // Add cat/dog glyphs, more as level increases
+    for (let i = 0; i < catDogWeight; i++) glyphs.push(CAT_GLYPH, DOG_GLYPH);
+  }
   const glyph  = glyphs[Math.floor(Math.random() * glyphs.length)];
 
   const speedBase = 90 + level * 18 + elapsed * 0.4;
@@ -513,7 +532,8 @@ function spawnSplash(
   x: number, y: number,
   type: 'rain' | 'snow' | 'hail',
   isHit = false,
-  sizeScale = 1
+  sizeScale = 1,
+  glyphOverride?: string
 ): void {
   const count = isHit ? 10 : (type === 'hail' ? 7 : type === 'snow' ? 4 : 2);
   let color: string;
@@ -526,7 +546,14 @@ function spawnSplash(
     glyphs = ['\xb7', '\u02d9', '*'];
   } else {
     color = isHit ? COLORS.brightRed : COLORS.splash;
-    glyphs = ['\xb7', '\u02d9', '\''];
+    // Accept a glyph argument for splash (for CAT/DOG)
+    if (glyphOverride === CAT_GLYPH) {
+      glyphs = ['C', 'A', 'T'];
+    } else if (glyphOverride === DOG_GLYPH) {
+      glyphs = ['D', 'O', 'G'];
+    } else {
+      glyphs = ['\xb7', '\u02d9', '\''];
+    }
   }
   for (let i = 0; i < count; i++) {
     const angle = (Math.PI * 2 / count) * i + (Math.random() - 0.5) * 0.9;
@@ -838,7 +865,7 @@ function updatePlaying(state: GameState, dt: number): void {
             spawnUmbrellaSlide(state, hitX, surfaceY, h.type);
           }
           // Make umbrella-hit rain splash particles render larger.
-          spawnSplash(state, h.x, h.y, h.type, false, 1.35);
+          spawnSplash(state, h.x, h.y, h.type, false, 1.35, h.glyph);
         } else {
           // Umbrella-hit snow and hail particles are both boosted in size.
           const umbrellaImpactScale = h.type === 'snow' ? 1.7 : 1.3;
@@ -861,7 +888,7 @@ function updatePlaying(state: GameState, dt: number): void {
           state.deathFlash = 1.2;
           state.combo = 0;
           state.comboTimer = 0;
-          spawnSplash(state, h.x, h.y, h.type, true);
+          spawnSplash(state, h.x, h.y, h.type, true, 1, h.glyph);
           spawnHeartExplosion(state, state.W / 2 + 55, state.H * 0.05);
           state.audioEvents.push({ kind: 'hit' });
           if (state.hp <= 0) {
@@ -882,7 +909,7 @@ function updatePlaying(state: GameState, dt: number): void {
         // Missing a hazard breaks the current combo chain.
         state.combo = 0;
         state.comboTimer = 0;
-        spawnSplash(state, h.x, h.y, h.type, false);
+        spawnSplash(state, h.x, h.y, h.type, false, 1, h.glyph);
       }
       toRemove.add(i);
     }
