@@ -1106,11 +1106,11 @@ function drawStars(s: GameState): void {
 }
 
 // Clouds
-const CLOUD_CHARSET = ' .,-:;=+*#%R';
+const CLOUD_CHARSET = ' RAIN';
 const CLOUD_CHARSETS: Record<'rain' | 'snow' | 'hail', string> = {
   rain: CLOUD_CHARSET,
-  snow: ' .,-:;=+*#%S',
-  hail: ' .,-:;=+*#%H',
+  snow: ' SNOW',
+  hail: ' HAIL',
 };
 const CLOUD_EMIT_BRIGHTNESS = 0.22;
 const CLOUD_EMIT_SAMPLE_COLS = 18;
