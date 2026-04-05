@@ -1106,12 +1106,13 @@ function drawStars(s: GameState): void {
 }
 
 // Clouds
-const CLOUD_CHARSET = ' RAAIIN';
+const CLOUD_CHARSET = ' RAIN RAIN ';
 const CLOUD_CHARSETS: Record<'rain' | 'snow' | 'hail', string> = {
   rain: CLOUD_CHARSET,
-  snow: ' SNOON',
-  hail: ' HAAIIL',
+  snow: ' SNOW SNOW ',
+  hail: ' HAIL HAIL ',
 };
+const CLOUD_DECORATION_CHARS = '.,-:;=+*#%';
 const CLOUD_EMIT_BRIGHTNESS = 0.22;
 const CLOUD_EMIT_SAMPLE_COLS = 18;
 const CLOUD_EMIT_SAMPLE_ROWS = 8;
@@ -1122,6 +1123,44 @@ const EMIT_POINTS_UPDATE_INTERVAL = 1 / 12;
 function brightnessToCharsetIndex(brightness: number): number {
   const adjusted = Math.sqrt(brightness);
   return Math.min(Math.max(Math.floor(adjusted * (CLOUD_CHARSET.length - 1)), 0), CLOUD_CHARSET.length - 1);
+}
+function wrapPatternIndex(index: number, length: number): number {
+  if (length <= 0) return 0;
+  return ((index % length) + length) % length;
+}
+function cloudNoise(seed: number): number {
+  const value = Math.sin(seed * 12.9898 + 78.233) * 43758.5453;
+  return value - Math.floor(value);
+}
+function getRollingCloudChar(
+  type: ParticleType | 'mixed' | undefined,
+  col: number,
+  row: number,
+  elapsed: number,
+  brightness: number,
+): string {
+  const resolvedType: ParticleType = type === 'snow' || type === 'hail' ? type : 'rain';
+  const pattern = CLOUD_CHARSETS[resolvedType] || CLOUD_CHARSET;
+  const speed = resolvedType === 'snow' ? -2.2 : resolvedType === 'hail' ? 4.4 : 6.4;
+  const phase = Math.floor(elapsed * speed + row * (resolvedType === 'snow' ? 1.2 : 1.7));
+  const idx = wrapPatternIndex(col + phase, pattern.length);
+  let ch = pattern[idx] ?? ' ';
+  if (brightness > 0.72 && ch === ' ') {
+    ch = pattern[wrapPatternIndex(idx + 1, pattern.length)] ?? ' ';
+  }
+
+  if (ch !== ' ') {
+    const timeBucket = Math.floor(elapsed * (resolvedType === 'snow' ? 2.0 : resolvedType === 'hail' ? 3.6 : 3.0));
+    const noise = cloudNoise((col + 1) * 17.13 + (row + 1) * 91.7 + timeBucket * 0.73 + brightness * 11.2);
+    const symbolChance = brightness > 0.68 ? 0.22 : brightness > 0.3 ? 0.14 : 0.08;
+    if (noise < symbolChance) {
+      const symbolIdx = Math.floor(cloudNoise(noise * 97 + col * 3.1 + row * 5.7) * CLOUD_DECORATION_CHARS.length);
+      ch = CLOUD_DECORATION_CHARS[symbolIdx] ?? ch;
+    }
+  }
+
+  if (brightness < 0.12 && ch !== ' ') return '.';
+  return ch;
 }
 const SHOW_CLOUD_SOURCE_FIELD = false;
 
@@ -1488,12 +1527,12 @@ function getCloudLinesFromField(c: Cloud, elapsed: number): string[] {
   const offsetX = (c.id * 13) % (FIELD_COLS / FIELD_OVERSAMPLE - width);
   const offsetY = (c.id * 7) % (FIELD_ROWS / FIELD_OVERSAMPLE - height);
   const lines: string[] = [];
+  const cloudType = c.visualType ?? c.type;
   for (let row = 0; row < height; row++) {
     let line = '';
     for (let col = 0; col < width; col++) {
       const brightness = sampleBrightness(offsetX + col, offsetY + row);
-      const index = brightnessToCharsetIndex(brightness);
-      line += CLOUD_CHARSET[index] || ' ';
+      line += brightness <= 0.05 ? ' ' : getRollingCloudChar(cloudType, col, row, elapsed + c.id * 0.35, brightness);
     }
     lines.push(line);
   }
@@ -1502,23 +1541,37 @@ function getCloudLinesFromField(c: Cloud, elapsed: number): string[] {
 
 function makeCloudBody(width: number, charset: string, phase: number, filled: boolean): string {
   let result = '';
+  const shift = Math.floor(phase * 3.5);
   for (let i = 0; i < width; i++) {
-    const theta = (i / width) * Math.PI * 4 + phase;
-    const intensity = 0.5 + 0.5 * Math.sin(theta + Math.cos(phase * 0.9));
-    const index = Math.min(Math.max(Math.floor(intensity * (charset.length - 1)), 0), charset.length - 1);
-    const ch = charset[index] || ' ';
-    result += filled && Math.sin(theta * 3 + phase) > 0.4 ? ch : ch;
+    let ch = charset[wrapPatternIndex(i + shift, charset.length)] || ' ';
+    if (filled && ch === ' ') {
+      ch = charset[wrapPatternIndex(i + shift + 1, charset.length)] || ' ';
+    }
+    if (ch !== ' ') {
+      const noise = cloudNoise((i + 1) * 13.7 + shift * 0.41 + (filled ? 7.3 : 0));
+      if (noise < 0.12) {
+        const symbolIdx = Math.floor(noise * CLOUD_DECORATION_CHARS.length) % CLOUD_DECORATION_CHARS.length;
+        ch = CLOUD_DECORATION_CHARS[symbolIdx] ?? ch;
+      }
+    }
+    result += ch;
   }
   return result;
 }
 
 function makeCloudDrip(charset: string, width: number, phase: number): string {
-  const dripChar = charset[Math.floor((phase * 7) % charset.length)] || '.';
   const pieces: string[] = [];
   const count = Math.min(6, Math.ceil(width / 6));
+  const shift = Math.floor(phase * 4.5);
   for (let i = 0; i < count; i++) {
-    const offset = Math.sin(phase + i * 1.3);
-    pieces.push(offset > 0 ? dripChar : charset[Math.floor((phase + i * 0.5) % charset.length)] || ' ');
+    const idx = wrapPatternIndex(shift + i * 2, charset.length);
+    let ch = charset[idx] && charset[idx] !== ' ' ? charset[idx] : '|';
+    const noise = cloudNoise((i + 1) * 21.2 + shift * 0.55);
+    if (noise < 0.18) {
+      const symbolIdx = Math.floor(noise * CLOUD_DECORATION_CHARS.length) % CLOUD_DECORATION_CHARS.length;
+      ch = CLOUD_DECORATION_CHARS[symbolIdx] ?? ch;
+    }
+    pieces.push(ch);
   }
   return pieces.join(' ');
 }
@@ -1591,10 +1644,7 @@ function drawClouds(s: GameState): void {
       }
 
       const drawType: ParticleType | 'mixed' = pType ?? 'mixed';
-      const charset = (pType ? CLOUD_CHARSETS[pType] : CLOUD_CHARSET) || CLOUD_CHARSET;
-      const adjusted = Math.sqrt(brightness);
-      const idx = Math.min(Math.max(Math.floor(adjusted * (charset.length - 1)), 0), charset.length - 1);
-      const ch = charset[idx] && charset[idx] !== ' ' ? charset[idx] : '.';
+      const ch = getRollingCloudChar(drawType, c, r, s.elapsed, brightness);
       cloudLine += ch;
       pTypeArr.push(drawType);
     }
@@ -2292,6 +2342,18 @@ function drawHUD(s: GameState): void {
   const lvl  = `LVL:${s.difficultyLevel + 1}  ${String(Math.floor(s.elapsed)).padStart(3, '0')}s`;
   const lvlW = renderer.measureWidth(lvl, f);
   renderer.drawText(ctx, lvl, f, size + 2, W - pad - lvlW, textY, { color: COLORS.red, shadowColor: COLORS.red, shadowBlur: 10 });
+
+  const windStrength = Math.round(Math.abs(s.windX));
+  const windArrow = windStrength < 8 ? '<>' : s.windX >= 0 ? '>>>' : '<<<';
+  const windText = `WIND:${windArrow} ${windStrength}`;
+  const windColor = windStrength < 12 ? COLORS.dim : windStrength < 45 ? COLORS.cyan : COLORS.brightAmber;
+  const windW = renderer.measureWidth(windText, fnt(size - 1, 700));
+  renderer.drawText(ctx, windText, fnt(size - 1, 700), size + 2, W - pad - windW, textY + size + 2, {
+    color: windColor,
+    shadowColor: windColor,
+    shadowBlur: windStrength > 20 ? 8 : 0,
+    alpha: 0.95,
+  });
 
   drawPowerUpCommandLine(s, size, textY + size + 2, pad);
 }
