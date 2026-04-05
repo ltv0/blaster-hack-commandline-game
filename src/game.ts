@@ -530,6 +530,10 @@ function maintainClouds(state: GameState): void {
   const MAX_CLOUDS = 8; // Hard cap on clouds
   const target = Math.min(MAX_CLOUDS, 3 + Math.floor(level / 2));
 
+  // --- Profiling ---
+  const maintainStart = (typeof performance !== 'undefined' && performance.now) ? performance.now() : Date.now();
+  let cloudsAdded = 0;
+
   // Count existing types
   const typeCounts = { rain: 0, snow: 0, hail: 0 };
   for (const c of state.clouds) typeCounts[c.type]++;
@@ -556,47 +560,51 @@ function maintainClouds(state: GameState): void {
     const x = Math.random() * W;
     spawnCloud(state, x, type);
     typeCounts[type]++;
+    cloudsAdded++;
   }
 
   // Remove excess clouds if above cap
   if (state.clouds.length > MAX_CLOUDS) {
     state.clouds.splice(0, state.clouds.length - MAX_CLOUDS);
   }
+
+  const maintainEnd = (typeof performance !== 'undefined' && performance.now) ? performance.now() : Date.now();
+  if (typeof window !== 'undefined' && (window as any).__DEBUG_GAME__ && (cloudsAdded > 0 || (maintainEnd - maintainStart) > 2)) {
+    console.log(`[PROFILE] maintainClouds: cloudsAdded=${cloudsAdded}, time=${(maintainEnd - maintainStart).toFixed(2)}ms, totalClouds=${state.clouds.length}`);
+  }
 }
 
 /** Spawn one hazard from a specific cloud — called per-cloud from updateClouds. */
 function spawnHazardFromCloud(state: GameState, cloud: Cloud): void {
-    // Cap hazards: remove oldest if at max
-    if (state.hazards.length >= MAX_HAZARDS) {
-      state.hazards.shift();
-    }
-  const { difficultyLevel: level, elapsed } = state;
+  if (!Array.isArray(state.hazards) || !Number.isInteger(state.hazards.length) || state.hazards.length < 0 || state.hazards.length > MAX_HAZARDS * 4) {
+    state.hazards = [];
+  } else if (state.hazards.length >= MAX_HAZARDS) {
+    state.hazards.splice(0, state.hazards.length - (MAX_HAZARDS - 1));
+  }
 
-  // Strict topology mode: hazards may only emit from sampled, visible cloud pixels.
-  if (cloud.emitPoints.length === 0) return;
-  const p = cloud.emitPoints[Math.floor(Math.random() * cloud.emitPoints.length)]!;
+  const { difficultyLevel: level, elapsed } = state;
+  const emitPoints = Array.isArray(cloud.emitPoints) ? cloud.emitPoints : [];
+  if (emitPoints.length === 0) return;
+
+  const p = emitPoints[Math.floor(Math.random() * emitPoints.length)];
+  if (!p || !Number.isFinite(p.dx) || !Number.isFinite(p.dy)) return;
+
   const x = cloud.x + p.dx;
   const y = cloud.y + p.dy;
 
-  let glyphs = HAZARD_GLYPHS[cloud.type];
-  // For rain, mix in CAT/DOG glyphs starting at level 2, increasing their frequency with level
+  let glyph: string;
   if (cloud.type === 'rain') {
-    const baseGlyphs = ['|', '/'];
-    let catDogRate = 0;
-    if (level >= 2) {
-      // Start at 20% at level 2, increase by 20% per level
-      catDogRate = Math.min(1, 0.2 * (level - 1));
-    }
-    // Build weighted glyphs array
-    glyphs = [];
-    // Add base rain glyphs (always 2 each)
-    for (let i = 0; i < 2; i++) glyphs.push('|', '/');
-    // Add cat/dog glyphs based on rate
-    const baseCount = glyphs.length;
-    const catDogCount = Math.round(baseCount * catDogRate / (1 - catDogRate));
-    for (let i = 0; i < catDogCount; i++) glyphs.push(CAT_GLYPH, DOG_GLYPH);
+    // Old weighted-array math hit a divide-by-zero at high levels and overflowed.
+    const catDogChance = Math.min(0.9, Math.max(0, 0.2 * (level - 1)));
+    const useAnimalGlyph = level >= 2 && Math.random() < catDogChance;
+    glyph = useAnimalGlyph
+      ? (Math.random() < 0.5 ? CAT_GLYPH : DOG_GLYPH)
+      : (Math.random() < 0.5 ? '|' : '/');
+  } else {
+    const glyphs = HAZARD_GLYPHS[cloud.type];
+    if (!glyphs || glyphs.length === 0) return;
+    glyph = glyphs[Math.floor(Math.random() * glyphs.length)]!;
   }
-  const glyph  = glyphs[Math.floor(Math.random() * glyphs.length)];
 
   const speedBase = 90 + level * 18 + elapsed * 0.4;
   const vy = speedBase * (0.8 + Math.random() * 0.4);
@@ -607,15 +615,21 @@ function spawnHazardFromCloud(state: GameState, cloud: Cloud): void {
 
   state.hazards.push({
     id: state.hazardIdCounter++,
-    x, y,
+    x,
+    y,
     prevX: x,
     prevY: y,
-    vx, vy,
+    vx,
+    vy,
     type: cloud.type,
     glyph,
     blocked: false,
     size,
   });
+
+  if (state.hazards.length > MAX_HAZARDS) {
+    state.hazards.splice(0, state.hazards.length - MAX_HAZARDS);
+  }
 
   cloud.flashTimer = 0.2;
 }
@@ -957,6 +971,27 @@ function chooseRandomPowerUp(): PowerUpType {
 
 function clearHazards(state: GameState): void {
   state.hazards.length = 0;
+  // Validate/repair hazards after length assignment
+  if (!Array.isArray(state.hazards) || typeof state.hazards.length !== 'number' || state.hazards.length < 0 || !Number.isFinite(state.hazards.length) || !Number.isSafeInteger(state.hazards.length)) {
+    if (typeof console !== 'undefined') {
+      console.error('[ERROR] state.hazards was invalid after clearHazards, forcibly resetting to []', { hazards: state.hazards, state });
+      console.trace('[TRACE] Corruption detected after clearHazards');
+    }
+    state.hazards = [];
+  }
+}
+
+function clearScreen(state: GameState): void {
+  state.hazards.length = 0;
+  // Validate/repair hazards after length assignment
+  if (!Array.isArray(state.hazards) || typeof state.hazards.length !== 'number' || state.hazards.length < 0 || !Number.isFinite(state.hazards.length) || !Number.isSafeInteger(state.hazards.length)) {
+    if (typeof console !== 'undefined') {
+      console.error('[ERROR] state.hazards was invalid after clearScreen, forcibly resetting to []', { hazards: state.hazards, state });
+      console.trace('[TRACE] Corruption detected after clearScreen');
+    }
+    state.hazards = [];
+  }
+  state.powerUpPickups.length = 0;
 }
 
 function restoreHealth(state: GameState): void {
@@ -1030,7 +1065,15 @@ function maybeSpawnComboPowerUp(state: GameState): void {
 
 function updatePowerUpPickups(state: GameState, dt: number): void {
   for (let i = state.powerUpPickups.length - 1; i >= 0; i--) {
-    const pickup = state.powerUpPickups[i]!;
+    const pickup = state.powerUpPickups[i];
+    if (!pickup || typeof pickup.age !== 'number') {
+      // Remove undefined/null/invalid elements
+      state.powerUpPickups.splice(i, 1);
+      if (typeof console !== 'undefined') {
+        console.warn('[WARN] Removed invalid or undefined powerUpPickup at index', i, pickup);
+      }
+      continue;
+    }
     pickup.age += dt;
     pickup.phase += dt * 3.2;
     pickup.y = pickup.baseY + Math.sin(pickup.phase) * 8;
@@ -1169,6 +1212,14 @@ function spawnUmbrellaSlide(state: GameState, hitX: number, hitY: number, type: 
 // ─── Update ───────────────────────────────────────────────────────────────────
 
 export function update(state: GameState, dt: number): void {
+    // Global hazards array validation/repair at start of update
+    if (!Array.isArray(state.hazards) || typeof state.hazards.length !== 'number' || state.hazards.length < 0 || !Number.isFinite(state.hazards.length) || !Number.isSafeInteger(state.hazards.length)) {
+      if (typeof console !== 'undefined') {
+        console.error('[ERROR] state.hazards was invalid at start of update, forcibly resetting to []', { hazards: state.hazards, state });
+        console.trace('[TRACE] Corruption detected at start of update');
+      }
+      state.hazards = [];
+    }
   state.audioEvents = [];
   if (state.phase === 'boot') { updateBoot(state, dt); return; }
   if (state.phase === 'dead') { updateDead(state, dt); return; }
@@ -1204,6 +1255,14 @@ function updateDead(state: GameState, dt: number): void {
 }
 
 function updatePlaying(state: GameState, dt: number): void {
+    // Global hazards array validation/repair at start of frame
+    if (!Array.isArray(state.hazards) || typeof state.hazards.length !== 'number' || state.hazards.length < 0 || !Number.isFinite(state.hazards.length) || !Number.isSafeInteger(state.hazards.length)) {
+      if (typeof console !== 'undefined') {
+        console.error('[ERROR] state.hazards was invalid at start of updatePlaying, forcibly resetting to []', { hazards: state.hazards, state });
+        console.trace('[TRACE] Corruption detected at start of updatePlaying');
+      }
+      state.hazards = [];
+    }
   state.elapsed += dt;
   updatePowerUpTimers(state, dt);
 
@@ -1222,10 +1281,6 @@ function updatePlaying(state: GameState, dt: number): void {
     state.levelUpTimer = 2.5;
     state.levelUpText = `// LEVEL ${newLevel + 1} STORM INTENSIFYING //`;
     state.audioEvents.push({ kind: 'levelup' });
-    // Debug logging for cloud/hazard/particle counts
-    if (typeof console !== 'undefined') {
-      console.log(`Level up to ${newLevel + 1}: clouds=${state.clouds.length}, hazards=${state.hazards.length}, particles=${state.particles.length}`);
-    }
     // Rebuild the particle field and update cloud visuals for the new level
     // Clear and respawn clouds to match new level data
     state.clouds = [];
@@ -1413,7 +1468,21 @@ function updatePlaying(state: GameState, dt: number): void {
       state.hazards[hazardWriteIndex++] = h;
     }
   }
-  state.hazards.length = hazardWriteIndex;
+  // Clamp hazardWriteIndex to a valid integer before assigning
+  let safeHazardWriteIndex = Number.isFinite(hazardWriteIndex) && hazardWriteIndex >= 0 ? Math.floor(hazardWriteIndex) : 0;
+  if (safeHazardWriteIndex !== hazardWriteIndex) {
+    if (typeof console !== 'undefined') {
+      console.error('[ERROR] Clamped invalid hazardWriteIndex in updatePlaying', { hazardWriteIndex, safeHazardWriteIndex, hazards: state.hazards, state });
+    }
+  }
+  state.hazards.length = safeHazardWriteIndex;
+  // Repair hazards array if its length is invalid before pushing
+  if (!Array.isArray(state.hazards) || typeof state.hazards.length !== 'number' || state.hazards.length < 0 || !Number.isFinite(state.hazards.length)) {
+    if (typeof console !== 'undefined') {
+      console.error('[ERROR] state.hazards was invalid before push, forcibly resetting to []', { hazards: state.hazards, state });
+    }
+    state.hazards = [];
+  }
 
   if (state.hitCooldown > 0) state.hitCooldown -= dt;
   if (state.deathFlash > 0) state.deathFlash -= dt;
@@ -1542,6 +1611,9 @@ function updateClouds(state: GameState, dt: number): void {
   const { W, H, difficultyLevel: level } = state;
   const minCloudY = H * 0.05;
   const maxCloudY = H * 0.15;
+  const updateStart = (typeof performance !== 'undefined' && performance.now) ? performance.now() : Date.now();
+  let totalBursts = 0;
+  let totalHazardsSpawned = 0;
   for (let i = state.clouds.length - 1; i >= 0; i--) {
     const c = state.clouds[i];
     c.x += c.vx * dt;
@@ -1568,8 +1640,16 @@ function updateClouds(state: GameState, dt: number): void {
       c.spawnTimer -= c.spawnInterval;
       // Burst: rain fires 1-2 drops, snow 1, hail 1 (but hail is bigger)
       const burst = c.type === 'rain' && level >= 3 ? 2 : 1;
-      for (let b = 0; b < burst; b++) spawnHazardFromCloud(state, c);
+      totalBursts++;
+      for (let b = 0; b < burst; b++) {
+        spawnHazardFromCloud(state, c);
+        totalHazardsSpawned++;
+      }
     }
+  }
+  const updateEnd = (typeof performance !== 'undefined' && performance.now) ? performance.now() : Date.now();
+  if (typeof window !== 'undefined' && (window as any).__DEBUG_GAME__ && ((updateEnd - updateStart) > 2 || totalBursts > 0)) {
+    console.log(`[PROFILE] updateClouds: clouds=${state.clouds.length}, bursts=${totalBursts}, hazardsSpawned=${totalHazardsSpawned}, time=${(updateEnd - updateStart).toFixed(2)}ms`);
   }
 }
 
