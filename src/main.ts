@@ -8,6 +8,7 @@ import {
   handlePointerDown,
   handlePointerUp,
   computeUmbrellaYBounds,
+  powerUpLabel,
   COLORS,
   type GameState,
   type AudioEvent,
@@ -111,6 +112,13 @@ function handleAudioEvents(events: AudioEvent[]): void {
       case 'hit': playTone(110, 'sawtooth', 0.2, 0.15); playNoise(0.25, 0.12, 400); break;
       case 'levelup': { const t = a.currentTime; playTone(330,'square',0.1,0.12,t); playTone(440,'square',0.1,0.12,t+0.12); playTone(550,'square',0.1,0.18,t+0.24); break; }
       case 'death': playTone(220,'sawtooth',0.2,0.4); playTone(110,'sawtooth',0.15,0.6); playNoise(0.3,0.5,200); break;
+      case 'powerup': {
+        const t = a.currentTime;
+        playTone(660, 'square', 0.08, 0.08, t);
+        playTone(880, 'square', 0.08, 0.12, t + 0.09);
+        playTone(990, 'triangle', 0.06, 0.18, t + 0.2);
+        break;
+      }
     }
   }
 }
@@ -686,12 +694,14 @@ function drawGame(s: GameState): void {
   drawClouds(s);
   drawGround(s);
   drawTraveler(s);
+  drawPowerUpPickups(s);
   drawHazards(s);
   drawScorePopups(s);
   drawParticles(s);
   drawHeartExplosions(s);
   drawUmbrella(s);
   drawUmbrellaSlides(s);
+  drawPowerUpEffects(s);
   drawHUD(s);
   drawLevelUpBanner(s);
   if (s.deathFlash > 0 && s.phase !== 'dead') {
@@ -1378,6 +1388,122 @@ function drawHazards(s: GameState): void {
   }
 }
 
+function powerUpColor(type: GameState['activePowerUp'] | NonNullable<GameState['activePowerUp']>): string {
+  switch (type) {
+    case 'shield': return COLORS.cyan;
+    case 'doublePoints': return COLORS.comboGold;
+    case 'slowMotion': return '#84b6ff';
+    case 'healthBoost': return COLORS.brightRed;
+    case 'hazardClear': return COLORS.white;
+    case 'clearScreen': return COLORS.white;
+    case 'findBoost': return COLORS.brightAmber;
+    case 'pipePoints': return COLORS.green;
+    case 'killHazards': return COLORS.red;
+    default: return COLORS.green;
+  }
+}
+
+function drawPowerUpPickups(s: GameState): void {
+  if (s.powerUpPickups.length === 0) return;
+  const size = sz(W / 65, 10, 15);
+  const lineH = Math.round(size * 1.25);
+
+  for (const pickup of s.powerUpPickups) {
+    const pulse = 0.68 + 0.32 * Math.sin(pickup.phase * 2.2);
+    const ttlT = Math.max(0, 1 - pickup.age / pickup.ttl);
+    const alpha = Math.max(0.22, ttlT) * pulse;
+    const label = powerUpLabel(pickup.type);
+    const color = powerUpColor(pickup.type);
+    const font = fnt(size + (pickup.type === 'healthBoost' ? 1 : 0), 700);
+    const block = renderer.getBlock(label, font, lineH);
+    renderer.drawBlock(ctx, block, pickup.x, pickup.y, {
+      color,
+      shadowColor: color,
+      shadowBlur: 12,
+      align: 'center',
+      verticalAlign: 'middle',
+      alpha,
+    });
+  }
+}
+
+function drawPowerUpEffects(s: GameState): void {
+  const active = s.activePowerUp;
+  const hasText = s.powerUpTextTimer > 0 && s.powerUpText.length > 0;
+  if (!active && !hasText && s.powerUpFlashTimer <= 0) return;
+
+  if (s.powerUpFlashTimer > 0) {
+    const flashAlpha = Math.min(0.22, s.powerUpFlashTimer * 0.5);
+    ctx.save();
+    ctx.fillStyle = '#f8fbff';
+    ctx.globalAlpha = flashAlpha;
+    ctx.fillRect(0, 0, W, H);
+    ctx.restore();
+  }
+
+  if (s.shieldActive) {
+    const label = 'SHIELD';
+    const size = sz(W / 70, 10, 14);
+    const yBob = Math.sin(s.elapsed * 6) * 6;
+    const shieldY = s.travelerY - size * 1.9 + yBob;
+    renderer.drawText(ctx, label, fnt(size, 700), size * 1.3, s.travelerX, shieldY, {
+      color: COLORS.cyan,
+      shadowColor: COLORS.cyan,
+      shadowBlur: 14,
+      align: 'center',
+      verticalAlign: 'middle',
+      alpha: 0.95,
+    });
+  }
+
+  if (s.findBoostActive && s.powerUpPickups.length > 0) {
+    let nearest = s.powerUpPickups[0]!;
+    let bestD2 = Number.POSITIVE_INFINITY;
+    for (const p of s.powerUpPickups) {
+      const dx = p.x - s.travelerX;
+      const dy = p.y - s.travelerY;
+      const d2 = dx * dx + dy * dy;
+      if (d2 < bestD2) {
+        bestD2 = d2;
+        nearest = p;
+      }
+    }
+    const arrow = nearest.x >= s.travelerX ? '=> FIND' : 'FIND <=';
+    const ay = s.travelerY - 42;
+    renderer.drawText(ctx, arrow, fnt(sz(W / 80, 9, 13), 700), sz(W / 80, 9, 13) * 1.2, s.travelerX, ay, {
+      color: COLORS.brightAmber,
+      shadowColor: COLORS.brightAmber,
+      shadowBlur: 10,
+      align: 'center',
+      alpha: 0.9,
+    });
+  }
+
+  if (hasText) {
+    const label = s.powerUpText;
+    const size = sz(W / 60, 10, 16);
+    const alpha = Math.max(0.35, Math.min(1, s.powerUpTextTimer));
+    const color = active ? powerUpColor(active) : COLORS.green;
+    renderer.drawText(ctx, label, fnt(size, 700), size * 1.25, W / 2, H * 0.16, {
+      color,
+      shadowColor: color,
+      shadowBlur: 16,
+      align: 'center',
+      alpha,
+    });
+  }
+
+  if (s.slowMotionActive) {
+    renderer.drawText(ctx, 'SNAIL...', fnt(sz(W / 82, 9, 13), 700), sz(W / 82, 9, 13) * 1.2, W / 2, H * 0.21, {
+      color: '#9fc2ff',
+      shadowColor: '#9fc2ff',
+      shadowBlur: 8,
+      align: 'center',
+      alpha: 0.8,
+    });
+  }
+}
+
 // Particles
 function drawParticles(s: GameState): void {
   for (const p of s.particles) {
@@ -1626,6 +1752,17 @@ function drawHUD(s: GameState): void {
   const lvl  = `LVL:${s.difficultyLevel + 1}  ${String(Math.floor(s.elapsed)).padStart(3, '0')}s`;
   const lvlW = renderer.measureWidth(lvl, f);
   renderer.drawText(ctx, lvl, f, size + 2, W - pad - lvlW, textY, { color: COLORS.red, shadowColor: COLORS.red, shadowBlur: 10 });
+
+  if (s.activePowerUp && s.powerUpTimer > 0) {
+    const pLabel = `${powerUpLabel(s.activePowerUp)} ${s.powerUpTimer.toFixed(1)}s`;
+    const pw = renderer.measureWidth(pLabel, fnt(size - 1, 700));
+    renderer.drawText(ctx, pLabel, fnt(size - 1, 700), size + 2, W / 2 - pw / 2, textY + size + 2, {
+      color: powerUpColor(s.activePowerUp),
+      shadowColor: powerUpColor(s.activePowerUp),
+      shadowBlur: 9,
+      alpha: 0.95,
+    });
+  }
 }
 
 function drawScanlines(alpha: number): void {

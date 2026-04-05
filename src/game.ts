@@ -103,11 +103,34 @@ export interface Cloud {
   emitPoints: Array<{ dx: number; dy: number }>;
 }
 
+export type PowerUpType =
+  | 'shield'
+  | 'doublePoints'
+  | 'slowMotion'
+  | 'healthBoost'
+  | 'hazardClear'
+  | 'clearScreen'
+  | 'findBoost'
+  | 'pipePoints'
+  | 'killHazards';
+
+export interface PowerUpPickup {
+  id: number;
+  x: number;
+  y: number;
+  baseY: number;
+  type: PowerUpType;
+  age: number;
+  ttl: number;
+  phase: number;
+}
+
 export type AudioEvent =
   | { kind: 'block'; hazardType: 'rain' | 'snow' | 'hail' }
   | { kind: 'hit' }
   | { kind: 'levelup' }
-  | { kind: 'death' };
+  | { kind: 'death' }
+  | { kind: 'powerup' };
 
 export interface GameState {
   phase: GamePhase;
@@ -168,6 +191,10 @@ export interface GameState {
   heartExplosions: HeartExplosion[];
   heartExplosionIdCounter: number;
 
+  // power-up pickups
+  powerUpPickups: PowerUpPickup[];
+  powerUpPickupIdCounter: number;
+
   // scroll / parallax
   groundOffset: number;
   bgStarOffset: number;
@@ -183,6 +210,18 @@ export interface GameState {
   hp: number;
   maxHp: number;
   hitCooldown: number;
+
+  // power-up status
+  activePowerUp: PowerUpType | null;
+  powerUpTimer: number;
+  powerUpText: string;
+  powerUpTextTimer: number;
+  powerUpFlashTimer: number;
+  shieldActive: boolean;
+  doublePointsActive: boolean;
+  slowMotionActive: boolean;
+  findBoostActive: boolean;
+  pipePointsActive: boolean;
 
   // difficulty
   elapsed: number;
@@ -271,6 +310,32 @@ export const COLORS = {
 };
 
 const GROUND_Y_RATIO = 0.91;
+const POWER_UP_THRESHOLD = 40;
+const POWER_UP_PICKUP_TTL = 12;
+
+const POWER_UP_WEIGHTS: Array<{ type: PowerUpType; weight: number }> = [
+  { type: 'shield', weight: 16 },
+  { type: 'doublePoints', weight: 16 },
+  { type: 'slowMotion', weight: 14 },
+  { type: 'healthBoost', weight: 12 },
+  { type: 'hazardClear', weight: 11 },
+  { type: 'clearScreen', weight: 9 },
+  { type: 'findBoost', weight: 9 },
+  { type: 'pipePoints', weight: 8 },
+  { type: 'killHazards', weight: 5 },
+];
+
+const POWER_UP_TEXT: Record<PowerUpType, string> = {
+  shield: 'SHIELD',
+  doublePoints: '*2X POINTS*',
+  slowMotion: 'SNAIL...',
+  healthBoost: '+HEALTH+',
+  hazardClear: '!CLEAR!',
+  clearScreen: 'CLS',
+  findBoost: 'FIND',
+  pipePoints: 'PIPE',
+  killHazards: 'KILL',
+};
 
 // ─── Init ─────────────────────────────────────────────────────────────────────
 
@@ -325,6 +390,9 @@ export function createInitialState(W: number, H: number): GameState {
     heartExplosions: [],
     heartExplosionIdCounter: 0,
 
+    powerUpPickups: [],
+    powerUpPickupIdCounter: 0,
+
     groundOffset: 0,
     bgStarOffset: 0,
 
@@ -337,6 +405,17 @@ export function createInitialState(W: number, H: number): GameState {
     hp: 5,
     maxHp: 5,
     hitCooldown: 0,
+
+    activePowerUp: null,
+    powerUpTimer: 0,
+    powerUpText: '',
+    powerUpTextTimer: 0,
+    powerUpFlashTimer: 0,
+    shieldActive: false,
+    doublePointsActive: false,
+    slowMotionActive: false,
+    findBoostActive: false,
+    pipePointsActive: false,
 
     elapsed: 0,
     difficultyLevel: 0,
@@ -781,6 +860,210 @@ function spawnHeartExplosion(state: GameState, centerX: number, centerY: number)
   }
 }
 
+function currentPowerUpLabel(type: PowerUpType): string {
+  return POWER_UP_TEXT[type];
+}
+
+export function powerUpLabel(type: PowerUpType): string {
+  return currentPowerUpLabel(type);
+}
+
+function powerUpDuration(type: PowerUpType): number {
+  switch (type) {
+    case 'shield': return 5;
+    case 'doublePoints': return 10;
+    case 'slowMotion': return 8;
+    case 'findBoost': return 6;
+    case 'pipePoints': return 5;
+    case 'healthBoost': return 1.3;
+    case 'hazardClear': return 1.1;
+    case 'clearScreen': return 1.1;
+    case 'killHazards': return 1.1;
+    default: return 1.2;
+  }
+}
+
+function chooseRandomPowerUp(): PowerUpType {
+  const total = POWER_UP_WEIGHTS.reduce((sum, item) => sum + item.weight, 0);
+  let roll = Math.random() * total;
+  for (const item of POWER_UP_WEIGHTS) {
+    roll -= item.weight;
+    if (roll <= 0) return item.type;
+  }
+  return POWER_UP_WEIGHTS[POWER_UP_WEIGHTS.length - 1]!.type;
+}
+
+function clearHazards(state: GameState): void {
+  state.hazards.length = 0;
+}
+
+function clearScreen(state: GameState): void {
+  state.hazards.length = 0;
+  state.powerUpPickups.length = 0;
+}
+
+function restoreHealth(state: GameState): void {
+  const boost = Math.ceil(state.maxHp * 0.5);
+  state.hp = Math.min(state.maxHp, state.hp + boost);
+}
+
+function killRandomHazard(state: GameState): void {
+  if (state.hazards.length === 0) return;
+  const idx = Math.floor(Math.random() * state.hazards.length);
+  state.hazards.splice(idx, 1);
+}
+
+function moveNearestPickupTowardTraveler(state: GameState): void {
+  if (state.powerUpPickups.length === 0) return;
+  let nearest = state.powerUpPickups[0]!;
+  let bestD2 = Number.POSITIVE_INFINITY;
+  for (const p of state.powerUpPickups) {
+    const dx = p.x - state.travelerX;
+    const dy = p.y - state.travelerY;
+    const d2 = dx * dx + dy * dy;
+    if (d2 < bestD2) {
+      bestD2 = d2;
+      nearest = p;
+    }
+  }
+  nearest.x = state.travelerX + (Math.random() < 0.5 ? -1 : 1) * 38;
+  nearest.y = state.travelerY - 30;
+  nearest.baseY = nearest.y;
+}
+
+function resetTimedPowerUps(state: GameState): void {
+  state.shieldActive = false;
+  state.doublePointsActive = false;
+  state.slowMotionActive = false;
+  state.findBoostActive = false;
+  state.pipePointsActive = false;
+}
+
+function activatePowerUp(state: GameState, type: PowerUpType): void {
+  resetTimedPowerUps(state);
+  state.activePowerUp = type;
+  state.powerUpTimer = powerUpDuration(type);
+  state.powerUpText = currentPowerUpLabel(type);
+  state.powerUpTextTimer = Math.max(1.3, state.powerUpTimer);
+  state.powerUpFlashTimer = Math.max(state.powerUpFlashTimer, 0.28);
+
+  switch (type) {
+    case 'shield':
+      state.shieldActive = true;
+      break;
+    case 'doublePoints':
+      state.doublePointsActive = true;
+      break;
+    case 'slowMotion':
+      state.slowMotionActive = true;
+      break;
+    case 'findBoost':
+      state.findBoostActive = true;
+      moveNearestPickupTowardTraveler(state);
+      break;
+    case 'pipePoints':
+      state.pipePointsActive = true;
+      break;
+    case 'healthBoost':
+      restoreHealth(state);
+      break;
+    case 'hazardClear':
+      clearHazards(state);
+      break;
+    case 'clearScreen':
+      clearScreen(state);
+      break;
+    case 'killHazards':
+      killRandomHazard(state);
+      break;
+  }
+
+  state.audioEvents.push({ kind: 'powerup' });
+}
+
+function maybeSpawnComboPowerUp(state: GameState): void {
+  if (state.combo < POWER_UP_THRESHOLD) return;
+
+  const type = chooseRandomPowerUp();
+  const margin = Math.max(40, Math.min(120, state.W * 0.12));
+  const x = margin + Math.random() * Math.max(1, state.W - margin * 2);
+  const y = state.travelerBaseY - (26 + Math.random() * 46);
+
+  state.powerUpPickups.push({
+    id: state.powerUpPickupIdCounter++,
+    x,
+    y,
+    baseY: y,
+    type,
+    age: 0,
+    ttl: POWER_UP_PICKUP_TTL,
+    phase: Math.random() * Math.PI * 2,
+  });
+
+  state.combo = 0;
+  state.comboTimer = 0;
+  state.powerUpText = currentPowerUpLabel(type);
+  state.powerUpTextTimer = 1.0;
+}
+
+function updatePowerUpPickups(state: GameState, dt: number): void {
+  for (let i = state.powerUpPickups.length - 1; i >= 0; i--) {
+    const pickup = state.powerUpPickups[i]!;
+    pickup.age += dt;
+    pickup.phase += dt * 3.2;
+    pickup.y = pickup.baseY + Math.sin(pickup.phase) * 8;
+
+    if (state.findBoostActive) {
+      const dx = state.travelerX - pickup.x;
+      const dy = (state.travelerY - 24) - pickup.y;
+      const d = Math.hypot(dx, dy);
+      if (d > 0.001) {
+        const pull = Math.min(150 * dt, d);
+        pickup.x += (dx / d) * pull;
+        pickup.y += (dy / d) * pull;
+        pickup.baseY = pickup.y;
+      }
+    }
+
+    if (pickup.age >= pickup.ttl) {
+      state.powerUpPickups.splice(i, 1);
+      continue;
+    }
+
+    const dx = Math.abs(pickup.x - state.travelerX);
+    const dy = Math.abs(pickup.y - (state.travelerY + 12));
+    if (dx < 40 && dy < 42) {
+      state.powerUpPickups.splice(i, 1);
+      activatePowerUp(state, pickup.type);
+    }
+  }
+}
+
+function updatePowerUpTimers(state: GameState, dt: number): void {
+  if (state.powerUpTimer > 0) {
+    state.powerUpTimer = Math.max(0, state.powerUpTimer - dt);
+    if (state.powerUpTimer <= 0) {
+      resetTimedPowerUps(state);
+      state.activePowerUp = null;
+    }
+  }
+
+  if (state.powerUpTextTimer > 0) {
+    state.powerUpTextTimer = Math.max(0, state.powerUpTextTimer - dt);
+    if (state.powerUpTextTimer <= 0 && state.powerUpTimer <= 0) {
+      state.powerUpText = '';
+    }
+  }
+
+  if (state.powerUpFlashTimer > 0) {
+    state.powerUpFlashTimer = Math.max(0, state.powerUpFlashTimer - dt);
+  }
+}
+
+function scoreWithModifiers(state: GameState, basePoints: number): number {
+  return state.doublePointsActive ? basePoints * 2 : basePoints;
+}
+
 /**
  * The umbrella art rows and their approximate x-offsets (in character columns)
  * for the canopy surface. Row 0 = first line of art ("|").
@@ -894,6 +1177,7 @@ function updateDead(state: GameState, dt: number): void {
 
 function updatePlaying(state: GameState, dt: number): void {
   state.elapsed += dt;
+  updatePowerUpTimers(state, dt);
 
   // Keep traveler's standing position pinned to the top of static ground.
   state.travelerBaseY = computeTravelerBaseY(state);
@@ -917,7 +1201,7 @@ function updatePlaying(state: GameState, dt: number): void {
   state.scoreTimer += dt;
   if (state.scoreTimer >= 1.0) {
     state.scoreTimer -= 1.0;
-    state.score += 10 + state.difficultyLevel * 2;
+    state.score += scoreWithModifiers(state, 10 + state.difficultyLevel * 2);
   }
 
   // Combo decay
@@ -999,6 +1283,7 @@ function updatePlaying(state: GameState, dt: number): void {
 
   // Update hazards
   const groundY = computeGroundY(state);
+  const hazardSpeedFactor = state.slowMotionActive ? 0.5 : 1;
   const toRemove = new Set<number>();
 
   for (let i = 0; i < state.hazards.length; i++) {
@@ -1008,8 +1293,8 @@ function updatePlaying(state: GameState, dt: number): void {
     h.prevX = h.x;
     h.prevY = h.y;
 
-    h.x += (h.vx + state.windX * 0.3) * dt;
-    h.y += h.vy * dt;
+    h.x += (h.vx + state.windX * 0.3) * dt * hazardSpeedFactor;
+    h.y += h.vy * dt * hazardSpeedFactor;
 
     // Umbrella collision - no score/combo on direct hit, particles handle scoring
     if (!h.blocked) {
@@ -1053,7 +1338,12 @@ function updatePlaying(state: GameState, dt: number): void {
     if (!h.blocked) {
       const dx = Math.abs(h.x - state.travelerX);
       if (dx < 22 && h.y >= state.travelerY - 8 && h.y <= state.travelerY + 38) {
-        if (state.hitCooldown <= 0) {
+        if (state.pipePointsActive) {
+          const converted = scoreWithModifiers(state, h.type === 'hail' ? 20 : h.type === 'snow' ? 12 : 8);
+          state.score += converted;
+          spawnScorePopup(state, h.x, h.y - 8, converted, Math.max(1, state.combo));
+          state.audioEvents.push({ kind: 'block', hazardType: h.type });
+        } else if (!state.shieldActive && state.hitCooldown <= 0) {
           let damage = 1;
           if (h.type === 'hail') damage = 2;
           state.hp = Math.max(0, state.hp - damage);
@@ -1093,6 +1383,8 @@ function updatePlaying(state: GameState, dt: number): void {
   if (state.deathFlash > 0) state.deathFlash -= dt;
 
   updateParticles(state, dt);
+  updatePowerUpPickups(state, dt);
+  maybeSpawnComboPowerUp(state);
   updateScorePopups(state, dt);
   updateUmbrellaSlides(state, dt);
   updateHeartExplosions(state, dt);
@@ -1116,7 +1408,8 @@ function updateParticles(state: GameState, dt: number): void {
       state.combo++;
       state.comboTimer = 0;
       if (state.combo > state.bestCombo) state.bestCombo = state.combo;
-      const pts = (p.type === 'hail' ? 15 : p.type === 'snow' ? 8 : 5) * Math.max(1, state.combo);
+      const basePts = (p.type === 'hail' ? 15 : p.type === 'snow' ? 8 : 5) * Math.max(1, state.combo);
+      const pts = scoreWithModifiers(state, basePts);
       state.score += pts;
       const popupX = p.x + (Math.random() - 0.5) * 36;
       const popupY = Math.max(24, state.umbrellaY - 34);
