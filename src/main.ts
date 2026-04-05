@@ -1734,16 +1734,6 @@ function drawPowerUpEffects(s: GameState): void {
       alpha,
     });
   }
-
-  if (s.slowMotionActive) {
-    renderer.drawText(ctx, 'SNAIL...', fnt(sz(W / 82, 9, 13), 700), sz(W / 82, 9, 13) * 1.2, W / 2, H * 0.21, {
-      color: '#9fc2ff',
-      shadowColor: '#9fc2ff',
-      shadowBlur: 8,
-      align: 'center',
-      alpha: 0.8,
-    });
-  }
 }
 
 // Particles
