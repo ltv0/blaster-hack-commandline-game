@@ -14,7 +14,6 @@ import {
   type Cloud,
 } from './game.ts';
 import { PretextRenderer } from './pretext-renderer.ts';
-import skyTextRaw from './LoremIpsum.txt?raw';
 
 const canvas = document.getElementById('game-canvas') as HTMLCanvasElement;
 const ctx = canvas.getContext('2d')!;
@@ -66,68 +65,6 @@ function sz(base: number, minV: number, maxV: number): number {
   return Math.max(minV, Math.min(maxV, base));
 }
 
-let skyTextSource = '';
-let skyGrid: string[] = [];
-let skyGridCols = 0;
-let skyGridRows = 0;
-
-function buildSkyGrid(cols: number, rows: number, scrollOffset = 0): void {
-  if (cols <= 0 || rows <= 0) {
-    skyGrid = [];
-    skyGridCols = 0;
-    skyGridRows = 0;
-    return;
-  }
-  const source = skyTextSource.length > 0
-    ? skyTextSource
-    : 'lorem ipsum dolor sit amet consectetur adipiscing elit sed do eiusmod tempor';
-  const normalized = source.replace(/\s+/g, ' ').trim();
-  const padded = `${normalized}   `;
-  const len = padded.length;
-  const safeOffset = ((scrollOffset % len) + len) % len;
-
-  skyGridCols = cols;
-  skyGridRows = rows;
-  skyGrid = new Array(rows);
-  for (let r = 0; r < rows; r++) {
-    let line = '';
-    const rowOffset = (safeOffset + r * Math.max(3, Math.floor(cols * 0.12))) % len;
-    for (let c = 0; c < cols; c++) {
-      line += padded[(rowOffset + c) % len] ?? ' ';
-    }
-    skyGrid[r] = line;
-  }
-}
-
-async function loadSkyText(): Promise<void> {
-  skyTextSource = (skyTextRaw ?? '').replace(/\r?\n/g, ' ').trim();
-  if (skyTextSource.length === 0) {
-    skyTextSource = 'lorem ipsum dolor sit amet consectetur adipiscing elit sed do eiusmod tempor';
-  }
-}
-
-function drawSkyTextBackground(s: GameState): void {
-  const hudH = sz(W / 70, 10, 14) + 20;
-  const size = sz(W / 75, 9, 14);
-  const lineH = Math.round(size * 1.35);
-  const f = fnt(size, 700);
-  const charW = Math.max(4, renderer.measureWidth('M', f));
-  const cols = Math.max(1, Math.floor(CANVAS_W / charW));
-  const rows = Math.max(1, Math.floor(CANVAS_H / lineH));
-  const startY = hudH + 5;
-  const scrollOffset = Math.floor(s.elapsed * 4);
-
-  buildSkyGrid(cols, rows, scrollOffset);
-
-  for (let r = 0; r < rows; r++) {
-    const line = skyGrid[r] ?? ' '.repeat(cols);
-    const block = renderer.getBlock(line, f, lineH);
-    renderer.drawBlock(ctx, block, 0, startY + r * lineH, {
-      color: COLORS.dimGreen,
-      alpha: 0.18,
-    });
-  }
-}
 
 let audioCtx: AudioContext | null = null;
 function getAudio(): AudioContext | null {
@@ -460,17 +397,7 @@ function buildBackgroundRepulsors(s: GameState): BgRepulsor[] {
   // Note: umbrella and traveler are now handled by circle obstacles (true wrap),
   // not repulsors.  Only soft-push effects remain here for hazards and clouds.
 
-  const cloudCount = Math.min(8, s.clouds.length);
-  for (let i = 0; i < cloudCount; i++) {
-    const c = s.clouds[i];
-    const cloudW = c.artW > 0 ? c.artW : Math.max(80, Math.min(220, W * 0.18));
-    out.push({
-      x: c.x,
-      y: c.y + 24,
-      radius: Math.max(65, cloudW * 0.32),
-      strength: 6.2,
-    });
-  }
+  // Clouds use circle obstacles (true wrap) — no cloud repulsors here.
 
   const hazardCount = Math.min(28, s.hazards.length);
   for (let i = 0; i < hazardCount; i++) {
@@ -554,6 +481,25 @@ function buildBackgroundCircleObstacles(s: GameState): BgCircleObstacle[] {
     vPad: 1,
   });
 
+  // ── Clouds ───────────────────────────────────────────────────────────────
+  // Use the same geometry as drawClouds: hudH+5 for startY, 4 art lines tall.
+  // Bottom-biased ellipse so text wraps in close at top and hugs the base.
+  const cloudFontSize  = sz(W / 75, 9, 14);
+  const cloudLineH     = Math.round(cloudFontSize * 1.35);
+  const cloudHudH      = sz(W / 70, 10, 14) + 20;
+  const cloudStartY    = cloudHudH + 5;
+  const CLOUD_ART_LINES = 4;
+  const cloudArtH      = CLOUD_ART_LINES * cloudLineH;
+  for (let i = 0; i < Math.min(8, s.clouds.length); i++) {
+    const c = s.clouds[i]!;
+    const artW     = c.artW > 0 ? c.artW : Math.max(80, Math.min(220, W * 0.18));
+    const cloudTopY = Math.max(cloudStartY, c.y);
+    // Centre biased 70% toward bottom so upper rows stay open longer
+    const cloudCy  = cloudTopY + cloudArtH * 0.70;
+    const cloudRy  = cloudArtH * 0.30;   // distance from centre to bottom rim
+    out.push({ cx: c.x, cy: cloudCy, rx: artW / 2, ry: cloudRy, hPad: 2, vPad: 1 });
+  }
+
   return out;
 }
 
@@ -561,8 +507,6 @@ function buildBackgroundCircleObstacles(s: GameState): BgCircleObstacle[] {
 let state: GameState;
 function init(): void {
   resize(); buildStars(W, H); buildAsciiBackground();
-  // Start loading the editable sky text from src/LoremIpsum.txt
-  void loadSkyText();
   initParticleSystem();
   state = createInitialState(W, H);
   bindEvents();
@@ -719,7 +663,6 @@ function drawGame(s: GameState): void {
   const occluders = buildBackgroundOccluders(s);
   const circleObstacles = buildBackgroundCircleObstacles(s);
   drawAsciiBackground(s.bgStarOffset * 0.3, 0.21, '#a9f7c4', repulsors, occluders, circleObstacles);
-  drawSkyTextBackground(s);
   if (SHOW_CLOUD_SOURCE_FIELD) drawSourceField();
   drawStars(s);
   drawClouds(s);
@@ -1161,11 +1104,8 @@ function drawClouds(s: GameState): void {
   const fieldCellW = CANVAS_W / cols;
   const fieldCellH = CANVAS_H / rows;
 
-  // Ensure skyGrid matches the grid dimensions
-  if (skyGridCols !== cols || skyGridRows !== rows) drawSkyTextBackground(s);
-
   for (let r = 0; r < rows; r++) {
-    const skyRow = skyGrid[r] ?? ' '.repeat(cols);
+    const skyRow = ' '.repeat(cols);
   let cloudLine = '';
   let hasCloud = false;
   const pTypeArr: Array<ParticleType | undefined> = [];
