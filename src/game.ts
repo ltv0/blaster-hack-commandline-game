@@ -1475,14 +1475,15 @@ function updatePlaying(state: GameState, dt: number): void {
         if (!state.invincibilityActive && state.hitCooldown <= 0 && state.shieldInvulnerabilityTimer <= 0) {
           let damage = 1;
           if (h.type === 'hail') damage = 2;
-          
-          // If shield is active, break it but still take damage
-          if (state.shieldActive && !state.invincibilityActive) {
+
+          if (state.shieldActive) {
             state.shieldActive = false;
+            damage = 0;
+            state.shieldInvulnerabilityTimer = 1.0;
             state.powerUpText = 'SHIELD BROKEN!';
             state.powerUpTextTimer = Math.max(state.powerUpTextTimer, 1.5);
           }
-          
+
           const willDie = state.hp - damage <= 0;
           state.hp = Math.max(0, state.hp - damage);
           state.hitCooldown = 1.5; // longer post-hit invulnerability
