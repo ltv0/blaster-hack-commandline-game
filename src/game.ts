@@ -92,7 +92,9 @@ export interface Cloud {
   // width in pixels (written by renderer so spawn x is accurate)
   artW: number;
   // emit points (relative to cloud center) sampled from visible cloud topology
-  emitPoints: Array<{ dx: number; dy: number }>;
+  emitPoints: Array<{ dx: number; dy: number; pType?: 'rain' | 'snow' | 'hail' }>;
+  // visual type inferred from source-field particles (optional override for rendering/charset)
+  visualType?: 'rain' | 'snow' | 'hail';
   // per-cloud independent spawn cadence
   spawnTimer: number;
   spawnInterval: number;
@@ -444,22 +446,35 @@ function maintainClouds(state: GameState): void {
   const typeCounts = { rain: 0, snow: 0, hail: 0 };
   for (const c of state.clouds) typeCounts[c.type]++;
 
+  // Cloud spawn weights — easy to change or extend
+  const CLOUD_TYPE_WEIGHTS: Record<string, number> = { rain: 0.5, snow: 0.3, hail: 0.2 };
+  const weightKeys = Object.keys(CLOUD_TYPE_WEIGHTS);
+  function sampleCloudType(weights: Record<string, number>): string {
+    const entries = Object.entries(weights);
+    let total = 0;
+    for (const [, w] of entries) total += Math.max(0, w);
+    if (total <= 0) return entries[0]![0];
+    let r = Math.random() * total;
+    for (const [k, w] of entries) {
+      r -= Math.max(0, w);
+      if (r <= 0) return k;
+    }
+    return entries[entries.length - 1]![0];
+  }
+
   while (state.clouds.length < target) {
-    // Prioritise types that are missing or underrepresented
+    // Choose a type — prefer to ensure representation early, otherwise use weights
     let type: 'rain' | 'snow' | 'hail';
     if (level < 2) {
-      // Early game: only rain + snow
-      type = typeCounts.rain <= typeCounts.snow ? 'rain' : 'snow';
+      // Early game: only rain + snow — sample between the two weights
+      const smallWeights: Record<string, number> = { rain: CLOUD_TYPE_WEIGHTS.rain ?? 0.5, snow: CLOUD_TYPE_WEIGHTS.snow ?? 0.5 };
+      type = sampleCloudType(smallWeights) as 'rain' | 'snow';
     } else {
-      // Pick the least-represented type
-      if (typeCounts.hail === 0 && level >= 2) {
+      // If some type is completely missing but its configured weight > 0, create it to ensure variety
+      if (typeCounts.hail === 0 && (CLOUD_TYPE_WEIGHTS.hail ?? 0) > 0 && level >= 2) {
         type = 'hail';
-      } else if (typeCounts.rain <= typeCounts.snow && typeCounts.rain <= typeCounts.hail) {
-        type = 'rain';
-      } else if (typeCounts.snow <= typeCounts.hail) {
-        type = 'snow';
       } else {
-        type = 'hail';
+        type = sampleCloudType(CLOUD_TYPE_WEIGHTS) as 'rain' | 'snow' | 'hail';
       }
     }
     // Spread new clouds across the width
@@ -479,13 +494,15 @@ function spawnHazardFromCloud(state: GameState, cloud: Cloud): void {
   const x = cloud.x + p.dx;
   const y = cloud.y + p.dy;
 
-  const glyphs = HAZARD_GLYPHS[cloud.type];
+  // prefer the emit-point's particle type if present, otherwise fall back to cloud.type
+  const hazardType: 'rain' | 'snow' | 'hail' = (p.pType ?? cloud.type) as 'rain' | 'snow' | 'hail';
+  const glyphs = HAZARD_GLYPHS[hazardType];
   const glyph  = glyphs[Math.floor(Math.random() * glyphs.length)];
 
   const speedBase = 90 + level * 18 + elapsed * 0.4;
   const vy = speedBase * (0.8 + Math.random() * 0.4);
   const vx = (Math.random() - 0.5) * speedBase * 0.22 + state.windX * 0.5;
-  const size = cloud.type === 'hail'
+  const size = hazardType === 'hail'
     ? 0.9 + Math.random() * 0.4
     : 0.7 + Math.random() * 0.3;
 
@@ -495,7 +512,7 @@ function spawnHazardFromCloud(state: GameState, cloud: Cloud): void {
     prevX: x,
     prevY: y,
     vx, vy,
-    type: cloud.type,
+    type: hazardType,
     glyph,
     blocked: false,
     size,
