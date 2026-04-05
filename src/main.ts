@@ -856,10 +856,10 @@ function drawGround(s: GameState): void {
 }
 
 // Traveler
-const TRAVELER_HEADS = ['(^)', '(o)', '(^)', '(-)'];
-const LEGS_IDLE = ['/ \\', '/ \\'];
-const LEGS_WALK = ['/ \\', ' |/ ', '/ \\', ' \\| '];
-const LEGS_RUN  = ['/|\\', '/ /', '|\\|', '\\ \\'];
+const TRAVELER_HEADS = ['(^o^)'];
+const LEGS_IDLE = ['/  \\', '/  \\'];
+const LEGS_WALK = ['/  \\', ' |/ ', '/  \\', ' \\| '];
+const LEGS_RUN  = ['/  \\', ' |/ ', '/  \\', ' \\| '];
 let tFrame = 0; let tLegFrame = 0; let tTimer = 0; let tLegTimer = 0;
 
 function drawTraveler(s: GameState): void {
@@ -881,10 +881,10 @@ function drawTraveler(s: GameState): void {
   }
   const legFrames = speedFrac > 0.6 ? LEGS_RUN : speedFrac > 0.15 ? LEGS_WALK : LEGS_IDLE;
   const groundLegStr = legFrames[tLegFrame % legFrames.length];
-  const armsJump = s.travelerVY < 0 ? '\\o/' : '/o\\';
-  const legsJump = s.travelerVY < 0 ? ' ^^' : ' vv';
+  const armsJump = s.travelerVY < 0 ? '\\| |/' : '/| |\\';
+  const legsJump = s.travelerVY < 0 ? '^ ^' : 'v v';
   const moving = s.travelerVX;
-  const armsStr = moving < -10 ? '<|>' : moving > 10 ? '>|<' : '/|\\';
+  const armsStr = moving < -10 ? '-| |>' : moving > 10 ? '<| |-' : '/| |\\';
   const size = sz(W / 40, 14, 22);
   const f = fnt(size, 700);
   const lh = size + 2;
@@ -904,7 +904,7 @@ function drawTraveler(s: GameState): void {
     renderer.drawBlock(ctx, sBlock, tx, s.travelerBaseY + size * 2.6, { color: COLORS.dim, align: 'center', alpha: t * 0.5 });
   }
 
-  const headStr = airborne ? '(O)' : TRAVELER_HEADS[tFrame];
+  const headStr = airborne ? '(>o<)' : TRAVELER_HEADS[tFrame];
   const headBlock = renderer.getBlock(headStr, f, lh);
   // Glow halo
   renderer.drawBlock(ctx, headBlock, tx, s.travelerY, { color: glow, shadowColor: glow, shadowBlur: airborne ? 20 : 14, align: 'center', alpha: 0.45 });
