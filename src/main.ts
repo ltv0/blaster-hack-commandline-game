@@ -421,11 +421,11 @@ function buildBackgroundOccluders(s: GameState): BgOccluder[] {
   // The circle obstacle adds the wrap glow around it; the rect ensures nothing
   // draws inside the sprite itself.
   const travelerSize = sz(W / 40, 14, 22);
-  const travelerW = travelerSize * 3.2;   // tighter than before — circle obstacle handles outer wrap
-  const travelerH = travelerSize * 3.6;
+  const travelerW = travelerSize * 2.6;
+  const travelerH = travelerSize * 3.1;
   out.push({
     x: s.travelerX - travelerW * 0.5,
-    y: s.travelerY - travelerSize * 0.1,
+    y: s.travelerY + travelerSize * 0.05,
     w: travelerW,
     h: travelerH,
   });
@@ -476,11 +476,11 @@ function buildBackgroundCircleObstacles(s: GameState): BgCircleObstacle[] {
   const travelerSize = sz(W / 40, 14, 22);
   out.push({
     cx: s.travelerX,
-    cy: s.travelerY + travelerSize * 1.2,
-    rx: travelerSize * 1.5,
-    ry: travelerSize * 1.9,
-    hPad: 2,
-    vPad: 1,
+    cy: s.travelerY + travelerSize * 1.15,
+    rx: travelerSize * 1.25,
+    ry: travelerSize * 1.55,
+    hPad: 1,
+    vPad: 0,
   });
 
   // ── Clouds ───────────────────────────────────────────────────────────────

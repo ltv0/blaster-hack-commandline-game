@@ -1079,9 +1079,7 @@ function updatePlaying(state: GameState, dt: number): void {
     if (h.y > groundY) {
       // Only spawn if not already blocked (umbrella hit)
       if (!h.blocked) {
-        // Missing a hazard breaks the current combo chain.
-        state.combo = 0;
-        state.comboTimer = 0;
+        // Missing hazards does not break combo; combo decay is timer-based.
         spawnSplash(state, h.x, h.y, h.type, false, 1, h.glyph);
       }
       toRemove.add(i);
