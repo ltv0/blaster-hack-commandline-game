@@ -179,6 +179,9 @@ export interface GameState {
   particles: Particle[];
   particleIdCounter: number;
 
+  // snow on ground (particles that hit ground)
+  groundSnow: Array<{ x: number; y: number; life: number }>;
+
   // umbrella rain slides
   umbrellaSlides: UmbrellaSlide[];
   umbrellaSlideIdCounter: number;
@@ -383,6 +386,8 @@ export function createInitialState(W: number, H: number): GameState {
 
     particles: [],
     particleIdCounter: 0,
+
+    groundSnow: [],
 
     umbrellaSlides: [],
     umbrellaSlideIdCounter: 0,
@@ -1508,6 +1513,7 @@ function updatePlaying(state: GameState, dt: number): void {
   if (state.deathFlash > 0) state.deathFlash -= dt;
 
   updateParticles(state, dt);
+  updateGroundSnow(state, dt);
   updatePowerUpPickups(state, dt);
   maybeSpawnComboPowerUp(state);
   updateScorePopups(state, dt);
@@ -1516,6 +1522,7 @@ function updatePlaying(state: GameState, dt: number): void {
 }
 
 function updateParticles(state: GameState, dt: number): void {
+  const groundY = computeGroundY(state);
   let particleWriteIndex = 0;
   for (let i = 0; i < state.particles.length; i++) {
     const p = state.particles[i]!;
@@ -1548,6 +1555,12 @@ function updateParticles(state: GameState, dt: number): void {
       removeParticle = true;
     }
 
+    // Check if snow particle hit the ground
+    if (!removeParticle && p.type === 'snow' && p.y >= groundY) {
+      state.groundSnow.push({ x: p.x, y: groundY, life: 4 + Math.random() * 3 }); // persist 4-7 seconds
+      removeParticle = true;
+    }
+
     if (!removeParticle && p.life <= 0) {
       removeParticle = true;
     }
@@ -1557,6 +1570,18 @@ function updateParticles(state: GameState, dt: number): void {
     }
   }
   state.particles.length = particleWriteIndex;
+}
+
+function updateGroundSnow(state: GameState, dt: number): void {
+  let writeIndex = 0;
+  for (let i = 0; i < state.groundSnow.length; i++) {
+    const snow = state.groundSnow[i]!;
+    snow.life -= dt;
+    if (snow.life > 0) {
+      state.groundSnow[writeIndex++] = snow;
+    }
+  }
+  state.groundSnow.length = writeIndex;
 }
 
 function updateHeartExplosions(state: GameState, dt: number): void {

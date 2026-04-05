@@ -1560,6 +1560,19 @@ function drawGround(s: GameState): void {
     const block = renderer.getBlock(pattern, f, lineH);
     while (x < W + totalW) { renderer.drawBlock(ctx, block, x, rowY, { color, alpha }); x += totalW; }
   }
+
+  // Render snow on the ground
+  for (const snow of s.groundSnow) {
+    const snowAlpha = Math.max(0, snow.life / 4); // fade based on life
+    renderer.drawText(ctx, '✱', f, lineH, snow.x, groundY, {
+      color: COLORS.white,
+      alpha: snowAlpha * 0.8,
+      align: 'center',
+      shadowColor: COLORS.white,
+      shadowBlur: 4,
+    });
+  }
+
   // Double-rule separator
   const ruleF = fnt(size, 700);
   const ruleBlock = renderer.getBlock('|', ruleF, lineH);
@@ -1737,7 +1750,7 @@ function drawPowerUpEffects(s: GameState): void {
     const centerY = H * 0.16;
     
     // Measure text to create appropriately sized background box
-    const textWidth = renderer.measureWidth(label, fnt(size, 800));
+    const textWidth = renderer.measureWidth(label, fnt(size, 700));
     const boxPadding = size * 0.6;
     const boxWidth = textWidth + boxPadding * 2;
     const boxHeight = size * 2;
