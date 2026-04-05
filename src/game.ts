@@ -1,6 +1,7 @@
 import type { PowerUpPickup, PowerUpRuntime, PowerUpType } from './power-ups.ts';
 import {
   maybeSpawnComboPowerUp,
+  reduceSudoTimer,
   stripTimedPowerUps,
   updatePowerUpPickups,
   updatePowerUpTimers,
@@ -598,7 +599,7 @@ function maintainClouds(state: GameState): void {
   const { W, difficultyLevel: level } = state;
   const MAX_CLOUDS = 8; // Hard cap on clouds
   const target = Math.min(MAX_CLOUDS, 3 + Math.floor(level / 2));
-  const purpleRatio = level >= 10 ? Math.min(0.10, (level - 10) * 0.005) : 0;
+  const purpleRatio = level >= 10 ? Math.min(0.20, (level - 10) * 0.01) : 0;
 
   // --- Profiling ---
   const maintainStart = (typeof performance !== 'undefined' && performance.now) ? performance.now() : Date.now();
@@ -1282,8 +1283,8 @@ function updatePlaying(state: GameState, dt: number): void {
     state.travelerVY = 0;
   }
 
-  // Difficulty ramp every 15s
-  const newLevel = Math.floor(state.elapsed / 15);
+  // Difficulty ramp every 10s
+  const newLevel = Math.floor(state.elapsed / 10);
   if (newLevel > state.difficultyLevel) {
     state.difficultyLevel = newLevel;
     state.spawnInterval = Math.max(0.22, 1.6 - newLevel * 0.13);
@@ -1444,6 +1445,7 @@ function updatePlaying(state: GameState, dt: number): void {
       const dx = Math.abs(h.x - state.travelerX);
       if (dx < 22 && h.y >= state.travelerY - 8 && h.y <= state.travelerY + 38) {
         if (h.type === 'purpleRain') {
+          reduceSudoTimer(state, 1);
           stripTimedPowerUps(state);
         }
         if (!state.shieldActive && !state.invincibilityActive && state.hitCooldown <= 0) {

@@ -314,6 +314,27 @@ export function updatePowerUpTimers(state: GameState, dt: number): void {
   }
 }
 
+export function reduceSudoTimer(state: GameState, seconds: number): void {
+  const amount = Math.max(0, seconds);
+  if (amount <= 0) return;
+
+  const sudoTimer = state.powerUpTimers.sudo ?? 0;
+  if (sudoTimer <= 0) return;
+
+  const next = Math.max(0, sudoTimer - amount);
+  if (next <= 0) {
+    delete state.powerUpTimers.sudo;
+    setTimedPowerUpState(state, 'sudo', false);
+    if (state.activePowerUp === 'sudo') {
+      state.activePowerUp = null;
+    }
+  } else {
+    state.powerUpTimers.sudo = next;
+  }
+
+  state.powerUpTimer = Math.max(0, ...Object.values(state.powerUpTimers));
+}
+
 export function spawnBouncingPowerUp(state: GameState, type: PowerUpType, x: number, y: number): void {
   const id = state.powerUpPickupIdCounter++;
   const baseY = y;
