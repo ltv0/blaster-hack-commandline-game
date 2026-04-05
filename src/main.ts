@@ -1770,7 +1770,7 @@ function drawHeartExplosions(s: GameState): void {
 // Canopy only — no leading-space lines that skew maxLineWidth measurement.
 const UMBRELLA_CANOPY = [
     "           ___.----' `----.___",
-    "       _.-'   .-'  F  `   -   `-._",
+    "       _.-'   .-'  .  `   -   `-._",
     "    .-'    .'           \\   `-    `-.",
     "  .'              J            `.    `.",
     " /___    /                L      `  .--`.",
@@ -1778,7 +1778,7 @@ const UMBRELLA_CANOPY = [
 
 ];
 const UMBRELLA_HANDLE_LINES = 8;
-const UMBRELLA_FOOT = ['A', 'H', '      Yb   dB', '     YbmdP'];
+const UMBRELLA_FOOT = ['A', 'U', '      LV   ET', '     RC=HP'];
 
 function drawUmbrella(s: GameState): void {
   const { umbrellaX: ux, umbrellaY: uy } = s;
