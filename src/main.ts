@@ -44,6 +44,11 @@ function resize(): void {
     state.umbrellaVY = 0;
     state._umbrellaActualY = state.umbrellaY;
     buildAsciiBackground();
+    // Recreate / resize the particle simulation so the field grids
+    // and sampling scales match the new window dimensions. This keeps
+    // the cloud topology and emit-point sampling aligned with the
+    // visible canvas when the window is resized larger or smaller.
+    initParticleSystem();
   }
 }
 
@@ -381,7 +386,12 @@ function drawStars(s: GameState): void {
 }
 
 // Clouds
-const CLOUD_CHARSET = ' .,-:;=+*#%@';
+const CLOUD_CHARSET = ' .,-:;=+*#%R';
+const CLOUD_CHARSETS: Record<'rain' | 'snow' | 'hail', string> = {
+  rain: CLOUD_CHARSET,
+  snow: ' .,-:;=+*#%S',
+  hail: ' .,-:;=+*#%H',
+};
 const CLOUD_EMIT_BRIGHTNESS = 0.22;
 const CLOUD_EMIT_SAMPLE_COLS = 18;
 const CLOUD_EMIT_SAMPLE_ROWS = 8;
@@ -390,7 +400,7 @@ function brightnessToCharsetIndex(brightness: number): number {
   const adjusted = Math.sqrt(brightness);
   return Math.min(Math.max(Math.floor(adjusted * (CLOUD_CHARSET.length - 1)), 0), CLOUD_CHARSET.length - 1);
 }
-const SHOW_CLOUD_SOURCE_FIELD = false;
+const SHOW_CLOUD_SOURCE_FIELD = true;
 
 // Particle system for cloud source field
 const FIELD_OVERSAMPLE = 2;
@@ -407,16 +417,44 @@ let CANVAS_H = 200;
 let FIELD_SCALE_X = 0;
 let FIELD_SCALE_Y = 0;
 
-interface Particle { x: number; y: number; vx: number; vy: number; phase: number; }
+type ParticleType = 'rain' | 'snow' | 'hail';
+interface Particle { x: number; y: number; vx: number; vy: number; phase: number; type: ParticleType }
 interface Attractor { x: number; y: number; vx: number; vy: number; strength: number; }
 interface FieldStamp { radiusX: number; radiusY: number; sizeX: number; sizeY: number; values: Float32Array; }
 
 let particles: Particle[] = [];
 let attractors: Attractor[] = [];
 let brightnessField: Float32Array;
+let particleTypeField: Uint8Array;
 let particleFieldStamp: FieldStamp;
 let attractorFieldStamp: FieldStamp;
 let spriteCache = new Map<number, HTMLCanvasElement>();
+
+// --- Particle type weights (easy to change / extend) ---
+// Keys are particle type names; values are relative weights (do not need to sum to 1).
+const PARTICLE_TYPE_WEIGHTS: Record<string, number> = {
+  rain: 0.00,
+  snow: 0.85,
+  hail: 0.15,
+};
+
+// build an ordinal map so each type maps to a small integer (1..N) for compact storage
+const PARTICLE_TYPE_KEYS = Object.keys(PARTICLE_TYPE_WEIGHTS);
+const PARTICLE_TYPE_ORDINAL: Record<string, number> = {};
+for (let i = 0; i < PARTICLE_TYPE_KEYS.length; i++) PARTICLE_TYPE_ORDINAL[PARTICLE_TYPE_KEYS[i]] = i + 1;
+
+function sampleTypeFromWeights(weights: Record<string, number>): string {
+  const entries = Object.entries(weights);
+  let total = 0;
+  for (const [, w] of entries) total += Math.max(0, w);
+  if (total <= 0) return entries[0]![0];
+  let r = Math.random() * total;
+  for (const [k, w] of entries) {
+    r -= Math.max(0, w);
+    if (r <= 0) return k;
+  }
+  return entries[entries.length - 1]![0];
+}
 
 function getSpriteCanvas(radius: number): HTMLCanvasElement {
   const cached = spriteCache.get(radius);
@@ -459,7 +497,7 @@ function createFieldStamp(radiusPx: number): FieldStamp {
   return { radiusX, radiusY, sizeX, sizeY, values };
 }
 
-function splatFieldStamp(centerX: number, centerY: number, stamp: FieldStamp): void {
+function splatFieldStamp(centerX: number, centerY: number, stamp: FieldStamp, typeOrdinal?: number): void {
   const gridCenterX = Math.round(centerX * FIELD_SCALE_X);
   const gridCenterY = Math.round(centerY * FIELD_SCALE_Y);
   for (let y = -stamp.radiusY; y <= stamp.radiusY; y++) {
@@ -474,24 +512,39 @@ function splatFieldStamp(centerX: number, centerY: number, stamp: FieldStamp): v
       if (stampValue === 0) continue;
       const fieldIndex = fieldRowOffset + gridX;
       brightnessField[fieldIndex] = Math.min(1, brightnessField[fieldIndex]! + stampValue);
+      if (typeOrdinal !== undefined && particleTypeField) {
+        // stamp the particle type ordinal into the type field (last write wins)
+        particleTypeField[fieldIndex] = typeOrdinal;
+      }
     }
   }
 }
 
 function initParticleSystem(): void {
+  // Size the source-field canvas to the current window width and a
+  // sensible fraction of the window height so the cloud sampling region
+  // grows/shrinks with the viewport. Previously this was a fixed 170px
+  // which caused the cloud sampling to be clipped when the window was
+  // expanded.
   CANVAS_W = W;
-  CANVAS_H = 170;
+  // Target ~22% of window height, clamped to a reasonable min/max.
+  CANVAS_H = Math.round(Math.max(120, Math.min(Math.round(H * 0.22), 420)));
   FIELD_COLS = CANVAS_W * FIELD_OVERSAMPLE;
   FIELD_ROWS = CANVAS_H * FIELD_OVERSAMPLE;
   FIELD_SCALE_X = FIELD_COLS / CANVAS_W;
   FIELD_SCALE_Y = FIELD_ROWS / CANVAS_H;
-  particles = Array.from({ length: PARTICLE_N }, () => ({
-    x: Math.random() * CANVAS_W,
-    y: Math.random() * CANVAS_H,
-    vx: (Math.random() - 0.5) * 0.2,
-    vy: (Math.random() - 0.5) * 0.2,
-    phase: Math.random() * Math.PI * 2,
-  }));
+  // assign particle types using the central weights map (easy to change/extend)
+  particles = Array.from({ length: PARTICLE_N }, () => {
+    const sampled = sampleTypeFromWeights(PARTICLE_TYPE_WEIGHTS) as ParticleType;
+    return {
+      x: Math.random() * CANVAS_W,
+      y: Math.random() * CANVAS_H,
+      vx: (Math.random() - 0.5) * 0.2,
+      vy: (Math.random() - 0.5) * 0.2,
+      phase: Math.random() * Math.PI * 2,
+      type: sampled,
+    };
+  });
   attractors = Array.from({ length: ATTRACTOR_N }, (_, idx) => ({
     x: idx % 2 === 0 ? 0 : CANVAS_W,
     y: CANVAS_H * 0.15 + (idx * 0.12) * CANVAS_H,
@@ -500,6 +553,7 @@ function initParticleSystem(): void {
     strength: 0.05 + Math.random() * 0.06,
   }));
   brightnessField = new Float32Array(FIELD_COLS * FIELD_ROWS);
+  particleTypeField = new Uint8Array(FIELD_COLS * FIELD_ROWS);
   particleFieldStamp = createFieldStamp(SPRITE_R);
   attractorFieldStamp = createFieldStamp(ATTRACTOR_R);
 }
@@ -556,7 +610,8 @@ function updateParticleSystem(dt: number): void {
     brightnessField[i]! *= FIELD_DECAY;
   }
   for (const particle of particles) {
-    splatFieldStamp(particle.x, particle.y, particleFieldStamp);
+    const ordinal = PARTICLE_TYPE_ORDINAL[particle.type] ?? 1;
+    splatFieldStamp(particle.x, particle.y, particleFieldStamp, ordinal);
   }
   for (const attractor of attractors) {
     splatFieldStamp(attractor.x, attractor.y, attractorFieldStamp);
@@ -606,7 +661,7 @@ function updateCloudEmitPoints(s: GameState): void {
 
     const topFieldY = cloud.y - startY;
     const leftX = cloud.x - artW / 2;
-    const emitPoints: Array<{ dx: number; dy: number }> = [];
+  const emitPoints: Array<{ dx: number; dy: number; pType?: ParticleType }> = [];
 
     for (let row = 0; row < CLOUD_EMIT_SAMPLE_ROWS; row++) {
       const fy = topFieldY + (row + 0.5) * (sampleH / CLOUD_EMIT_SAMPLE_ROWS);
@@ -621,8 +676,35 @@ function updateCloudEmitPoints(s: GameState): void {
 
         const absX = fx;
         const absY = startY + fy;
-        emitPoints.push({ dx: absX - cloud.x, dy: absY - cloud.y });
+        // sample the particle type grid at this point (if available)
+        let pType: ParticleType | undefined = undefined;
+        const gx = Math.floor(fx * FIELD_SCALE_X);
+        const gy = Math.floor(fy * FIELD_SCALE_Y);
+        if (gx >= 0 && gx < FIELD_COLS && gy >= 0 && gy < FIELD_ROWS && particleTypeField) {
+          const val = particleTypeField[gy * FIELD_COLS + gx];
+          for (const key of PARTICLE_TYPE_KEYS) {
+            if (PARTICLE_TYPE_ORDINAL[key] === val) { pType = key as ParticleType; break; }
+          }
+        }
+        emitPoints.push({ dx: absX - cloud.x, dy: absY - cloud.y, pType });
       }
+    }
+
+    // determine dominant visual type for this cloud from sampled emit points
+    const counts = { rain: 0, snow: 0, hail: 0 };
+    for (const ep of emitPoints) {
+      if (ep.pType === 'rain') counts.rain++;
+      else if (ep.pType === 'snow') counts.snow++;
+      else if (ep.pType === 'hail') counts.hail++;
+    }
+    const total = counts.rain + counts.snow + counts.hail;
+    if (total > 0) {
+      let visual: ParticleType = 'rain';
+      if (counts.snow >= counts.rain && counts.snow >= counts.hail) visual = 'snow';
+      else if (counts.hail >= counts.rain && counts.hail >= counts.snow) visual = 'hail';
+      cloud.visualType = visual;
+    } else {
+      cloud.visualType = cloud.type;
     }
 
     if (emitPoints.length <= CLOUD_EMIT_MAX_POINTS) {
@@ -685,9 +767,10 @@ function getCloudLines(c: Cloud, elapsed: number): string[];
 function getCloudLines(c: Cloud, elapsed = 0): string[] {
   const width = 20 + (c.id % 3) * 3 + (c.type === 'hail' ? 4 : 0);
   const phase = elapsed * (c.type === 'rain' ? 1.2 : c.type === 'snow' ? 0.7 : 0.5) + c.id * 0.9;
-  const body = makeCloudBody(width, CLOUD_CHARSET, phase, false);
-  const fill = makeCloudBody(width, CLOUD_CHARSET, phase + 0.9, true);
-  const drip = makeCloudDrip(CLOUD_CHARSET, width, phase + 1.7);
+  const charset = (c.visualType ? CLOUD_CHARSETS[c.visualType] : CLOUD_CHARSET) || CLOUD_CHARSET;
+  const body = makeCloudBody(width, charset, phase, false);
+  const fill = makeCloudBody(width, charset, phase + 0.9, true);
+  const drip = makeCloudDrip(charset, width, phase + 1.7);
   return [
     `   .${body}.`,
     `  ( ${fill} )`,
