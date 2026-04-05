@@ -400,7 +400,7 @@ function brightnessToCharsetIndex(brightness: number): number {
   const adjusted = Math.sqrt(brightness);
   return Math.min(Math.max(Math.floor(adjusted * (CLOUD_CHARSET.length - 1)), 0), CLOUD_CHARSET.length - 1);
 }
-const SHOW_CLOUD_SOURCE_FIELD = true;
+const SHOW_CLOUD_SOURCE_FIELD = false;
 
 // Particle system for cloud source field
 const FIELD_OVERSAMPLE = 2;
@@ -821,18 +821,18 @@ function drawGround(s: GameState): void {
   ctx.fillStyle = COLORS.ground;
   ctx.fillRect(0, groundY, W, H - groundY);
   const grd = ctx.createLinearGradient(0, groundY, 0, groundY + lineH * 2);
-  grd.addColorStop(0, 'rgba(57,211,83,0.07)');
+  grd.addColorStop(0, 'rgba(57,255,100,0.15)'); // Increased brightness
   grd.addColorStop(1, 'rgba(0,0,0,0)');
   ctx.fillStyle = grd;
   ctx.fillRect(0, groundY, W, lineH * 2);
 
   const rows = [
-    { pattern: '\u2593\u2592\u2591\u2593\u2592\u2591\u2593\u2592', color: COLORS.groundLine, alpha: 0.85 },
-    { pattern: '\u2592\u2591\xb7\u2592\u2591\u2592\xb7\u2591',    color: COLORS.groundText,  alpha: 0.60 },
-    { pattern: '\u2591\xb7 \u2591 \xb7\u2591 \xb7',               color: COLORS.groundText,  alpha: 0.35 },
-    { pattern: '\xb7  \xb7   \xb7 ',                               color: COLORS.groundText,  alpha: 0.20 },
+    { pattern: '|grass|ground|', color: COLORS.brightGreen, alpha: 1.0 }, // Brighter color and full alpha
+    { pattern: '|ground|grass|', color: COLORS.brightGreen, alpha: 0.8 },
+    { pattern: '|grass|ground|', color: COLORS.brightGreen, alpha: 0.6 },
+    { pattern: '|ground|grass|', color: COLORS.brightGreen, alpha: 0.4 },
   ];
-  const charW = renderer.measureWidth('\u2593', f);
+  const charW = renderer.measureWidth('|', f);
   if (charW <= 0) return;
   for (let row = 0; row < rows.length; row++) {
     const { pattern, color, alpha } = rows[row];
@@ -847,11 +847,11 @@ function drawGround(s: GameState): void {
   }
   // Double-rule separator
   const ruleF = fnt(size, 700);
-  const ruleBlock = renderer.getBlock('\u2550', ruleF, lineH);
-  const ruleW = renderer.measureWidth('\u2550', ruleF);
+  const ruleBlock = renderer.getBlock('|', ruleF, lineH);
+  const ruleW = renderer.measureWidth('|', ruleF);
   if (ruleW > 0) {
     let dx = 0;
-    while (dx < W) { renderer.drawBlock(ctx, ruleBlock, dx, groundY - 1, { color: COLORS.green, alpha: 0.45 }); dx += ruleW; }
+    while (dx < W) { renderer.drawBlock(ctx, ruleBlock, dx, groundY - 1, { color: COLORS.brightGreen, alpha: 0.6 }); dx += ruleW; }
   }
 }
 
@@ -1041,6 +1041,7 @@ function drawUmbrellaSlides(s: GameState): void {
   const halfW = s.umbrellaArtWidth / 2;
   const peakY = s.umbrellaArtStartY + s.umbrellaArtLineH;
   const rimY = s.umbrellaArtStartY + (UMBRELLA_CANOPY.length - 1) * s.umbrellaArtLineH;
+  const canopyHeight = Math.max(1, rimY - peakY);
 
   for (const slide of s.umbrellaSlides) {
     const fadeAlpha = Math.max(0, slide.life * slide.alpha);
@@ -1059,6 +1060,12 @@ function drawUmbrellaSlides(s: GameState): void {
         drawX = clampedX;
         drawY = peakY + xFrac * (rimY - peakY);
       }
+
+      // Constrain slide-phase effects to canopy wedge at the current Y.
+      drawY = Math.max(peakY, Math.min(rimY, drawY));
+      const yFrac = Math.min(1, Math.max(0, (drawY - peakY) / canopyHeight));
+      const maxOffset = yFrac * halfW;
+      drawX = Math.max(artCenterX - maxOffset, Math.min(artCenterX + maxOffset, drawX));
     }
 
     // Use color/type for snow/rain

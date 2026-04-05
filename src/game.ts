@@ -28,6 +28,8 @@ export interface Particle {
   color: string;
   type: 'rain' | 'snow' | 'hail';
   sizeScale: number;
+  // true for secondary particles spawned from cloud impacts to avoid re-trigger loops
+  fromCloudHit?: boolean;
 }
 
 export interface ScorePopup {
@@ -89,15 +91,16 @@ export interface Cloud {
   type: 'rain' | 'snow' | 'hail';
   // pulsing flash when it emits a hazard
   flashTimer: number;
-  // width in pixels (written by renderer so spawn x is accurate)
-  artW: number;
-  // emit points (relative to cloud center) sampled from visible cloud topology
-  emitPoints: Array<{ dx: number; dy: number; pType?: 'rain' | 'snow' | 'hail' }>;
-  // visual type inferred from source-field particles (optional override for rendering/charset)
+  // renderer-selected visual style for cloud glyphs
   visualType?: 'rain' | 'snow' | 'hail';
   // per-cloud independent spawn cadence
   spawnTimer: number;
+  // current interval between spawns
   spawnInterval: number;
+  // width in pixels (written by renderer so spawn x is accurate)
+  artW: number;
+  // emit points (relative to cloud center) sampled from visible cloud topology
+  emitPoints: Array<{ dx: number; dy: number }>;
 }
 
 export type AudioEvent =
@@ -434,10 +437,11 @@ function spawnCloud(state: GameState, x: number, type: 'rain' | 'snow' | 'hail')
     vy,
     type,
     flashTimer: 0,
-    artW: 0,
-    emitPoints: [],
+    visualType: type,
     spawnTimer: Math.random() * 0.8, // stagger so they don't all fire at once
     spawnInterval: cloudSpawnInterval(level, type),
+    artW: 0,
+    emitPoints: [],
   });
 }
 
@@ -450,35 +454,22 @@ function maintainClouds(state: GameState): void {
   const typeCounts = { rain: 0, snow: 0, hail: 0 };
   for (const c of state.clouds) typeCounts[c.type]++;
 
-  // Cloud spawn weights — easy to change or extend
-  const CLOUD_TYPE_WEIGHTS: Record<string, number> = { rain: 0.5, snow: 0.3, hail: 0.2 };
-  const weightKeys = Object.keys(CLOUD_TYPE_WEIGHTS);
-  function sampleCloudType(weights: Record<string, number>): string {
-    const entries = Object.entries(weights);
-    let total = 0;
-    for (const [, w] of entries) total += Math.max(0, w);
-    if (total <= 0) return entries[0]![0];
-    let r = Math.random() * total;
-    for (const [k, w] of entries) {
-      r -= Math.max(0, w);
-      if (r <= 0) return k;
-    }
-    return entries[entries.length - 1]![0];
-  }
-
   while (state.clouds.length < target) {
-    // Choose a type — prefer to ensure representation early, otherwise use weights
+    // Prioritise types that are missing or underrepresented
     let type: 'rain' | 'snow' | 'hail';
     if (level < 2) {
-      // Early game: only rain + snow — sample between the two weights
-      const smallWeights: Record<string, number> = { rain: CLOUD_TYPE_WEIGHTS.rain ?? 0.5, snow: CLOUD_TYPE_WEIGHTS.snow ?? 0.5 };
-      type = sampleCloudType(smallWeights) as 'rain' | 'snow';
+      // Early game: only rain + snow
+      type = typeCounts.rain <= typeCounts.snow ? 'rain' : 'snow';
     } else {
-      // If some type is completely missing but its configured weight > 0, create it to ensure variety
-      if (typeCounts.hail === 0 && (CLOUD_TYPE_WEIGHTS.hail ?? 0) > 0 && level >= 2) {
+      // Pick the least-represented type
+      if (typeCounts.hail === 0 && level >= 2) {
         type = 'hail';
+      } else if (typeCounts.rain <= typeCounts.snow && typeCounts.rain <= typeCounts.hail) {
+        type = 'rain';
+      } else if (typeCounts.snow <= typeCounts.hail) {
+        type = 'snow';
       } else {
-        type = sampleCloudType(CLOUD_TYPE_WEIGHTS) as 'rain' | 'snow' | 'hail';
+        type = 'hail';
       }
     }
     // Spread new clouds across the width
@@ -498,34 +489,28 @@ function spawnHazardFromCloud(state: GameState, cloud: Cloud): void {
   const x = cloud.x + p.dx;
   const y = cloud.y + p.dy;
 
-  // prefer the emit-point's particle type if present, otherwise fall back to cloud.type
-  const hazardType: 'rain' | 'snow' | 'hail' = (p.pType ?? cloud.type) as 'rain' | 'snow' | 'hail';
-  // Start with the configured glyph set for this hazard type
-  let glyphs = HAZARD_GLYPHS[hazardType] || HAZARD_GLYPHS[cloud.type];
-  // Special-case rain: at higher difficulty we mix in vertical CAT/DOG glyphs for fun
-  if (hazardType === 'rain') {
+  let glyphs = HAZARD_GLYPHS[cloud.type];
+  // For rain, mix in CAT/DOG glyphs starting at level 2, increasing their frequency with level
+  if (cloud.type === 'rain') {
+    const baseGlyphs = ['|', '/'];
     let catDogWeight = 0;
     if (level >= 2) {
-      // Level 2 -> 1, level 3 -> 2, up to 4 at level 5+
-      catDogWeight = Math.min(4, level - 1);
+      // At level 2, 1/6 chance; increases by 1/6 per level up to 4/6
+      catDogWeight = Math.min(4, level - 1); // 1 at lvl2, 2 at lvl3, ... 4 at lvl5+
     }
-    if (catDogWeight > 0) {
-      const newGlyphs: string[] = [];
-      // keep some base rain glyphs for variety
-      for (let i = 0; i < 2; i++) newGlyphs.push('|', '/');
-      // add CAT/DOG glyphs proportionally to level
-      for (let i = 0; i < catDogWeight; i++) newGlyphs.push(CAT_GLYPH, DOG_GLYPH);
-      // finally mix in the original rain glyphs so we still get other shapes
-      for (const g of (HAZARD_GLYPHS.rain || [])) newGlyphs.push(g);
-      glyphs = newGlyphs;
-    }
+    // Build weighted glyphs array
+    glyphs = [];
+    // Add base rain glyphs (always 2 each)
+    for (let i = 0; i < 2; i++) glyphs.push('|', '/');
+    // Add cat/dog glyphs, more as level increases
+    for (let i = 0; i < catDogWeight; i++) glyphs.push(CAT_GLYPH, DOG_GLYPH);
   }
   const glyph  = glyphs[Math.floor(Math.random() * glyphs.length)];
 
   const speedBase = 90 + level * 18 + elapsed * 0.4;
   const vy = speedBase * (0.8 + Math.random() * 0.4);
   const vx = (Math.random() - 0.5) * speedBase * 0.22 + state.windX * 0.5;
-  const size = hazardType === 'hail'
+  const size = cloud.type === 'hail'
     ? 0.9 + Math.random() * 0.4
     : 0.7 + Math.random() * 0.3;
 
@@ -535,7 +520,7 @@ function spawnHazardFromCloud(state: GameState, cloud: Cloud): void {
     prevX: x,
     prevY: y,
     vx, vy,
-    type: hazardType,
+    type: cloud.type,
     glyph,
     blocked: false,
     size,
@@ -598,6 +583,59 @@ function spawnSplash(
   }
 }
 
+function pointHitsAnyCloud(state: GameState, x: number, y: number): boolean {
+  if (state.clouds.length === 0) return false;
+
+  const hudH = Math.max(10, Math.min(14, state.W / 70)) + 20;
+  const lineH = computeCloudLineH(state.W);
+  const fallbackArtW = Math.max(80, Math.min(220, state.W * 0.18));
+
+  for (const cloud of state.clouds) {
+    const artW = cloud.artW > 0 ? cloud.artW : fallbackArtW;
+    const left = cloud.x - artW / 2;
+    const right = cloud.x + artW / 2;
+    const top = Math.max(hudH + 6, cloud.y);
+    const bottom = top + 8 * lineH;
+    if (x >= left && x <= right && y >= top && y <= bottom) return true;
+  }
+
+  return false;
+}
+
+function spawnCloudHitBurst(
+  state: GameState,
+  x: number,
+  y: number,
+  type: 'rain' | 'snow' | 'hail',
+): void {
+  const count = type === 'hail' ? 5 : type === 'snow' ? 4 : 3;
+  const color = type === 'hail' ? COLORS.hailSplash : type === 'snow' ? COLORS.snowSplash : COLORS.splash;
+  const glyphs = type === 'hail'
+    ? ['\u00b7', '*', '\u25e6']
+    : type === 'snow'
+      ? ['\u00b7', '\u02d9', '*']
+      : ['\u00b7', '\'', '/'];
+
+  for (let i = 0; i < count; i++) {
+    const angle = Math.PI * (0.25 + Math.random() * 0.5); // mostly downward fan
+    const speed = 35 + Math.random() * 55;
+    state.particles.push({
+      id: state.particleIdCounter++,
+      x,
+      y,
+      vx: Math.cos(angle) * speed,
+      vy: Math.sin(angle) * speed,
+      life: 1,
+      maxLife: 0.18 + Math.random() * 0.15,
+      glyph: glyphs[Math.floor(Math.random() * glyphs.length)],
+      color,
+      type,
+      sizeScale: 0.85,
+      fromCloudHit: true,
+    });
+  }
+}
+
 function hazardIntersectsUmbrella(
   prevX: number,
   prevY: number,
@@ -641,6 +679,58 @@ function hazardIntersectsUmbrella(
     intersects(prevX, prevY, x, y, left, bottom, right, bottom) ||
     intersects(prevX, prevY, x, y, left, top, left, bottom)
   );
+}
+
+function computeUmbrellaImpactPoint(
+  prevX: number,
+  prevY: number,
+  x: number,
+  y: number,
+  left: number,
+  top: number,
+  right: number,
+  bottom: number,
+): { x: number; y: number } {
+  const hits: Array<{ t: number; x: number; y: number }> = [];
+
+  if (y !== prevY) {
+    const tTop = (top - prevY) / (y - prevY);
+    const xTop = prevX + (x - prevX) * tTop;
+    if (tTop >= 0 && tTop <= 1 && xTop >= left && xTop <= right) {
+      hits.push({ t: tTop, x: xTop, y: top });
+    }
+
+    const tBottom = (bottom - prevY) / (y - prevY);
+    const xBottom = prevX + (x - prevX) * tBottom;
+    if (tBottom >= 0 && tBottom <= 1 && xBottom >= left && xBottom <= right) {
+      hits.push({ t: tBottom, x: xBottom, y: bottom });
+    }
+  }
+
+  if (x !== prevX) {
+    const tLeft = (left - prevX) / (x - prevX);
+    const yLeft = prevY + (y - prevY) * tLeft;
+    if (tLeft >= 0 && tLeft <= 1 && yLeft >= top && yLeft <= bottom) {
+      hits.push({ t: tLeft, x: left, y: yLeft });
+    }
+
+    const tRight = (right - prevX) / (x - prevX);
+    const yRight = prevY + (y - prevY) * tRight;
+    if (tRight >= 0 && tRight <= 1 && yRight >= top && yRight <= bottom) {
+      hits.push({ t: tRight, x: right, y: yRight });
+    }
+  }
+
+  if (hits.length > 0) {
+    hits.sort((a, b) => a.t - b.t);
+    return { x: hits[0].x, y: hits[0].y };
+  }
+
+  // Fallback to nearest in-bounds point so a splash is always visible.
+  return {
+    x: Math.max(left, Math.min(right, x)),
+    y: Math.max(top, Math.min(bottom, y)),
+  };
 }
 
 function spawnScorePopup(
@@ -923,31 +1013,29 @@ function updatePlaying(state: GameState, dt: number): void {
       const uyBot = state.umbrellaY + state.umbrellaH + 12;
       if (hazardIntersectsUmbrella(h.prevX, h.prevY, h.x, h.y, ux0, uyTop, ux1, uyBot)) {
         h.blocked = true;
-        // Rain slides off the canopy; snow/hail pop into splash particles.
+        const impact = computeUmbrellaImpactPoint(h.prevX, h.prevY, h.x, h.y, ux0, uyTop, ux1, uyBot);
+
+        // Always spawn splash particles regardless of hazard type
+        const umbrellaImpactScale = h.type === 'snow' ? 1.7 : h.type === 'hail' ? 1.3 : 1.35;
+        spawnSplash(state, impact.x, impact.y, h.type, false, umbrellaImpactScale, h.glyph);
+
+        // Additional logic for rain slides
         if (h.type === 'rain') {
-          // Spawn 1–2 slide drops per hit for a streaming feel
           const slideCount = Math.random() < 0.55 ? 2 : 1;
           for (let s = 0; s < slideCount; s++) {
-            // Slightly vary hit x so multiple drops look natural
             const jitter = (Math.random() - 0.5) * 14;
-            // Always spawn slide at canopy surface, not at falling hazard's y
             const { umbrellaArtStartX, umbrellaArtWidth, umbrellaArtStartY, umbrellaArtLineH } = state;
             const artCenterX = umbrellaArtStartX + umbrellaArtWidth / 2;
             const halfW = umbrellaArtWidth / 2;
             const peakY = umbrellaArtStartY + 1 * umbrellaArtLineH;
             const rimY = umbrellaArtStartY + (UMBRELLA_CANOPY_LINES - 1) * umbrellaArtLineH;
-            const hitX = h.x + jitter;
+            const hitX = impact.x + jitter;
             const xFrac = Math.min(1, Math.abs(hitX - artCenterX) / halfW);
             const surfaceY = peakY + xFrac * (rimY - peakY);
             spawnUmbrellaSlide(state, hitX, surfaceY, h.type);
           }
-          // Make umbrella-hit rain splash particles render larger.
-          spawnSplash(state, h.x, h.y, h.type, false, 1.35, h.glyph);
-        } else {
-          // Umbrella-hit snow and hail particles are both boosted in size.
-          const umbrellaImpactScale = h.type === 'snow' ? 1.7 : 1.3;
-          spawnSplash(state, h.x, h.y, h.type, false, umbrellaImpactScale);
         }
+
         // No score/combo increment here - particles handle scoring when they hit umbrella
         state.audioEvents.push({ kind: 'block', hazardType: h.type });
         toRemove.add(i);
@@ -1028,6 +1116,13 @@ function updateParticles(state: GameState, dt: number): void {
       spawnScorePopup(state, popupX, popupY, pts, state.combo);
       state.audioEvents.push({ kind: 'block', hazardType: p.type });
       // Remove particle on hit
+      state.particles.splice(i, 1);
+      continue;
+    }
+
+    // Upward-moving splash particles can strike cloud bodies and create a small burst.
+    if (!p.fromCloudHit && p.vy < 0 && pointHitsAnyCloud(state, p.x, p.y)) {
+      spawnCloudHitBurst(state, p.x, p.y, p.type);
       state.particles.splice(i, 1);
       continue;
     }
