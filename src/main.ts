@@ -2441,41 +2441,100 @@ function drawScanlines(alpha: number): void {
 
 // Game over
 function drawGameOver(s: GameState): void {
-  ctx.fillStyle = '#060c14'; ctx.globalAlpha = 0.88; ctx.fillRect(0, 0, W, H); ctx.globalAlpha = 1;
-  const cx   = W / 2;
+  ctx.fillStyle = '#060c14';
+  ctx.globalAlpha = 0.88;
+  ctx.fillRect(0, 0, W, H);
+  ctx.globalAlpha = 1;
 
-  // Adjust size dynamically based on screen width
-  const scaleFactor = Math.min(W / 800, 1); // Scale down for smaller screens, max at 800px width
-  const size = sz(W / 45 * scaleFactor, 12 * scaleFactor, 18 * scaleFactor);
-  const lh   = size + 6 * scaleFactor;
+  const cx = W / 2;
+  const panelMargin = Math.max(10, Math.min(28, W * 0.04));
+  const boxW = Math.min(620, W - panelMargin * 2);
+  const boxH = Math.min(H - panelMargin * 2, W < 480 ? 250 : 270);
+  const boxX = Math.round(cx - boxW / 2);
+  const boxY = Math.round(H / 2 - boxH / 2);
+  const compact = boxW < 430;
+  const innerPadX = compact ? 14 : 18;
+  const innerW = boxW - innerPadX * 2;
 
-  // Adjust box dimensions dynamically
-  const boxW = Math.min(600 * scaleFactor, W - 20);
-  const boxH = 220 * scaleFactor;
-  const boxX = cx - boxW / 2;
-  const boxY = H / 2 - boxH / 2;
+  const titleSize = sz(W / 42, 14, 22);
+  const bodySize = sz(W / 55, 11, 16);
+  const metaSize = Math.max(10, bodySize - 1);
+  const promptSize = Math.max(10, bodySize);
+  const lh = Math.round(bodySize + (compact ? 7 : 8));
 
-  ctx.fillStyle = 'rgba(6,12,20,0.92)'; ctx.fillRect(boxX, boxY, boxW, boxH);
-  renderer.drawGlyphBox(ctx, fnt(size), lh, boxX, boxY, boxW, boxH, { color: COLORS.red, alpha: 0.8 });
-  renderer.drawText(ctx, '[ PROCESS KILLED ]', fnt(size + 4 * scaleFactor, 700), lh, cx, boxY + 20 * scaleFactor, { color: COLORS.red, shadowColor: COLORS.brightRed, shadowBlur: 22, align: 'center' });
-  renderer.drawHRule(ctx, '\u2550', fnt(size - 2 * scaleFactor), lh, boxX + 14 * scaleFactor, boxY + 60 * scaleFactor, boxW - 28 * scaleFactor, { color: COLORS.dimGreen, alpha: 0.6 });
-  renderer.drawText(ctx, `FINAL SCORE: ${s.score}`, fnt(size, 700), lh, cx, boxY + 76 * scaleFactor, { color: COLORS.amber, shadowColor: COLORS.amber, shadowBlur: 10, align: 'center' });
-  renderer.drawText(ctx, `SURVIVED: ${Math.floor(s.elapsed)}s   LEVEL REACHED: ${s.difficultyLevel + 1}`, fnt(size - 1 * scaleFactor), lh, cx, boxY + 104 * scaleFactor, { color: COLORS.dim, align: 'center' });
+  const statsText = compact
+    ? `SURVIVED: ${Math.floor(s.elapsed)}s\nLEVEL REACHED: ${s.difficultyLevel + 1}`
+    : `SURVIVED: ${Math.floor(s.elapsed)}s   LEVEL REACHED: ${s.difficultyLevel + 1}`;
+  const promptText = boxW < 380
+    ? '> Press R / ENTER\n> or tap to restart'
+    : compact
+      ? '> Press R / ENTER\n> tap to restart'
+      : '> Press R / ENTER / tap to restart';
 
-  let comboY = boxY + 126 * scaleFactor;
-  let promptY;
-  if (s.bestCombo > 1) {
-    renderer.drawText(ctx, `BEST COMBO: \xd7${s.bestCombo}`, fnt(size - 1 * scaleFactor), lh, cx, comboY, { color: COLORS.cyan, align: 'center' });
-    promptY = comboY + lh + 30 * scaleFactor;
-  } else {
-    const survivedY = boxY + 104 * scaleFactor;
-    const greenLineY = boxY + 154 * scaleFactor;
-    promptY = survivedY + (greenLineY - survivedY) * 0.7;
+  const titleBlock = renderer.getBlock('[ PROCESS KILLED ]', fnt(titleSize, 700), lh, innerW);
+  const scoreBlock = renderer.getBlock(`FINAL SCORE: ${s.score}`, fnt(bodySize, 700), lh, innerW);
+  const statsBlock = renderer.getBlock(statsText, fnt(metaSize), lh, innerW);
+  const comboBlock = s.bestCombo > 1
+    ? renderer.getBlock(`BEST COMBO: ×${s.bestCombo}`, fnt(metaSize, 700), lh, innerW)
+    : null;
+  const promptBlock = renderer.getBlock(promptText, fnt(promptSize, 700), lh, innerW);
+
+  const contentGap = Math.max(8, Math.round(lh * 0.35));
+  const ruleGap = Math.max(10, Math.round(lh * 0.55));
+  let totalHeight = titleBlock.height + ruleGap + scoreBlock.height + contentGap + statsBlock.height + ruleGap + promptBlock.height;
+  if (comboBlock) totalHeight += contentGap + comboBlock.height;
+
+  ctx.fillStyle = 'rgba(6,12,20,0.92)';
+  ctx.fillRect(boxX, boxY, boxW, boxH);
+  renderer.drawGlyphBox(ctx, fnt(bodySize), lh, boxX, boxY, boxW, boxH, { color: COLORS.red, alpha: 0.8 });
+
+  let y = Math.round(boxY + Math.max(16, (boxH - totalHeight) / 2));
+
+  renderer.drawBlock(ctx, titleBlock, cx, y, {
+    color: COLORS.red,
+    shadowColor: COLORS.brightRed,
+    shadowBlur: 22,
+    align: 'center',
+  });
+  y += titleBlock.height + Math.max(6, Math.round(contentGap * 0.8));
+
+  renderer.drawHRule(ctx, '\u2550', fnt(Math.max(metaSize - 1, 10)), lh, boxX + innerPadX, y, innerW, {
+    color: COLORS.dimGreen,
+    alpha: 0.6,
+  });
+  y += ruleGap;
+
+  renderer.drawBlock(ctx, scoreBlock, cx, y, {
+    color: COLORS.amber,
+    shadowColor: COLORS.amber,
+    shadowBlur: 10,
+    align: 'center',
+  });
+  y += scoreBlock.height + contentGap;
+
+  renderer.drawBlock(ctx, statsBlock, cx, y, { color: COLORS.dim, align: 'center' });
+  y += statsBlock.height;
+
+  if (comboBlock) {
+    y += contentGap;
+    renderer.drawBlock(ctx, comboBlock, cx, y, { color: COLORS.cyan, align: 'center' });
+    y += comboBlock.height;
   }
 
-  renderer.drawHRule(ctx, '\u2550', fnt(size - 2 * scaleFactor), lh, boxX + 14 * scaleFactor, boxY + 154 * scaleFactor, boxW - 28 * scaleFactor, { color: COLORS.dimGreen, alpha: 0.6 });
+  y += Math.max(6, Math.round(contentGap * 0.8));
+  renderer.drawHRule(ctx, '\u2550', fnt(Math.max(metaSize - 1, 10)), lh, boxX + innerPadX, y, innerW, {
+    color: COLORS.dimGreen,
+    alpha: 0.6,
+  });
+  y += ruleGap;
+
   if (Math.floor(Date.now() / 500) % 2 === 0) {
-    renderer.drawText(ctx, '> Press R / ENTER / tap to restart', fnt(size - 1 * scaleFactor, 700), lh, cx, promptY, { color: COLORS.green, shadowColor: COLORS.green, shadowBlur: 8, align: 'center' });
+    renderer.drawBlock(ctx, promptBlock, cx, y, {
+      color: COLORS.green,
+      shadowColor: COLORS.green,
+      shadowBlur: 8,
+      align: 'center',
+    });
   }
 }
 
