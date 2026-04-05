@@ -6,6 +6,8 @@ export interface Hazard {
   id: number;
   x: number;
   y: number;
+  prevX: number;
+  prevY: number;
   vx: number;
   vy: number;
   type: 'rain' | 'snow' | 'hail';
@@ -60,8 +62,8 @@ export interface UmbrellaSlide {
   y: number;        // current y position
   // normalized distance from canopy center to edge (0 = center, 1 = rim)
   canopyT: number;
-  // -1 = sliding left edge, +1 = sliding right edge
-  dir: -1 | 1;
+  // -1 = sliding left edge, 0 = sliding down the middle, +1 = sliding right edge
+  dir: -1 | 0 | 1;
   // x coordinate of the edge it's heading toward
   edgeX: number;
   edgeY: number;    // y at that edge (umbrella surface height at that x)
@@ -509,6 +511,8 @@ function spawnHazardFromCloud(state: GameState, cloud: Cloud): void {
   state.hazards.push({
     id: state.hazardIdCounter++,
     x, y,
+    prevX: x,
+    prevY: y,
     vx, vy,
     type: cloud.type,
     glyph,
@@ -571,6 +575,51 @@ function spawnSplash(
       sizeScale,
     });
   }
+}
+
+function hazardIntersectsUmbrella(
+  prevX: number,
+  prevY: number,
+  x: number,
+  y: number,
+  left: number,
+  top: number,
+  right: number,
+  bottom: number
+): boolean {
+  const segmentLeft = Math.min(prevX, x);
+  const segmentRight = Math.max(prevX, x);
+  const segmentTop = Math.min(prevY, y);
+  const segmentBottom = Math.max(prevY, y);
+  if (segmentRight < left || segmentLeft > right || segmentBottom < top || segmentTop > bottom) return false;
+
+  if (x >= left && x <= right && y >= top && y <= bottom) return true;
+  if (prevX >= left && prevX <= right && prevY >= top && prevY <= bottom) return true;
+
+  const intersects = (
+    ax: number, ay: number, bx: number, by: number,
+    cx: number, cy: number, dx: number, dy: number
+  ): boolean => {
+    const cross = (px: number, py: number, qx: number, qy: number, rx: number, ry: number): number =>
+      (qx - px) * (ry - py) - (qy - py) * (rx - px);
+    const onOppositeSides = (
+      p1: number, p2: number,
+      p3: number, p4: number
+    ): boolean => (p1 === 0 || p2 === 0 || (p1 > 0) !== (p2 > 0)) && (p3 === 0 || p4 === 0 || (p3 > 0) !== (p4 > 0));
+
+    const d1 = cross(ax, ay, bx, by, cx, cy);
+    const d2 = cross(ax, ay, bx, by, dx, dy);
+    const d3 = cross(cx, cy, dx, dy, ax, ay);
+    const d4 = cross(cx, cy, dx, dy, bx, by);
+    return onOppositeSides(d1, d2, d3, d4);
+  };
+
+  return (
+    intersects(prevX, prevY, x, y, left, top, right, top) ||
+    intersects(prevX, prevY, x, y, right, top, right, bottom) ||
+    intersects(prevX, prevY, x, y, left, bottom, right, bottom) ||
+    intersects(prevX, prevY, x, y, left, top, left, bottom)
+  );
 }
 
 function spawnScorePopup(
@@ -639,18 +688,20 @@ function spawnUmbrellaSlide(state: GameState, hitX: number, hitY: number, type: 
   const peakY   = umbrellaArtStartY + 1 * umbrellaArtLineH; // row 1
   const rimY    = umbrellaArtStartY + (UMBRELLA_CANOPY_LINES - 1) * umbrellaArtLineH; // canopy last row (rim)
 
-  // Pick side based on hit position relative to art centre
+  // Pick side based on hit position relative to art centre, with a chance to
+  // route straight down the middle for a more natural umbrella drip.
   const artCenterX = umbrellaArtStartX + umbrellaArtWidth / 2;
-  const dir: -1 | 1 = hitX <= artCenterX ? -1 : 1;
+  const halfW = umbrellaArtWidth / 2;
+  const xFrac = Math.min(1, Math.abs(hitX - artCenterX) / halfW);
+  const centerChance = Math.max(0.12, 0.32 - xFrac * 0.18);
+  const dir: -1 | 0 | 1 = Math.random() < centerChance ? 0 : (hitX <= artCenterX ? -1 : 1);
 
   // Edge x = left or right tip of the canopy art
-  const edgeX = dir === -1 ? umbrellaArtStartX : artRight;
+  const edgeX = dir === 0 ? artCenterX : (dir === -1 ? umbrellaArtStartX : artRight);
   const edgeY = rimY;
 
   // The surface slope: as x moves from centre to edge, y moves from peakY to rimY.
   // We use this to compute starting y on the surface at hitX.
-  const halfW = umbrellaArtWidth / 2;
-  const xFrac = Math.min(1, Math.abs(hitX - artCenterX) / halfW);
   const surfaceY = peakY + xFrac * (rimY - peakY);
 
   let slideGlyphs: string[], color: string;
@@ -669,9 +720,9 @@ function spawnUmbrellaSlide(state: GameState, hitX: number, hitY: number, type: 
 
   state.umbrellaSlides.push({
     id: state.umbrellaSlideIdCounter++,
-    x: hitX,
+    x: dir === 0 ? artCenterX : hitX,
     y: surfaceY,
-    canopyT: xFrac,
+    canopyT: dir === 0 ? Math.max(0, Math.min(1, (surfaceY - peakY) / (rimY - peakY))) : xFrac,
     dir,
     edgeX,
     edgeY,
@@ -816,8 +867,10 @@ function updatePlaying(state: GameState, dt: number): void {
     }
   }
   const lerpSpeed = 20;
+  const umbrellaLineH = computeUmbrellaLineH(state.W);
+  const handleAnchorOffset = umbrellaLineH * (UMBRELLA_CANOPY_LINES - 1 + UMBRELLA_HANDLE_LINES);
   state.umbrellaX += (state.pointerX - state.umbrellaX) * Math.min(1, lerpSpeed * dt);
-  state.umbrellaY += ((state.pointerY - 24) - state.umbrellaY) * Math.min(1, lerpSpeed * dt);
+  state.umbrellaY += ((state.pointerY - handleAnchorOffset) - state.umbrellaY) * Math.min(1, lerpSpeed * dt);
   const hw = state.umbrellaW / 2;
   state.umbrellaX = Math.max(hw + 4, Math.min(state.W - hw - 4, state.umbrellaX));
   const umbrellaBounds = computeUmbrellaYBounds(state);
@@ -835,6 +888,9 @@ function updatePlaying(state: GameState, dt: number): void {
     if (toRemove.has(i)) continue;
     const h = state.hazards[i];
 
+    h.prevX = h.x;
+    h.prevY = h.y;
+
     h.x += (h.vx + state.windX * 0.3) * dt;
     h.y += h.vy * dt;
 
@@ -844,7 +900,7 @@ function updatePlaying(state: GameState, dt: number): void {
       const ux1 = state.umbrellaX + state.umbrellaW / 2;
       const uyTop = state.umbrellaY;
       const uyBot = state.umbrellaY + state.umbrellaH + 12;
-      if (h.x >= ux0 && h.x <= ux1 && h.y >= uyTop && h.y <= uyBot) {
+      if (hazardIntersectsUmbrella(h.prevX, h.prevY, h.x, h.y, ux0, uyTop, ux1, uyBot)) {
         h.blocked = true;
         // Rain slides off the canopy; snow/hail pop into splash particles.
         if (h.type === 'rain') {
@@ -996,14 +1052,20 @@ function updateUmbrellaSlides(state: GameState, dt: number): void {
     if (s.phase === 'slide') {
       if (halfW > 0) {
         // Move in canopy-local space so drops remain attached as umbrella moves.
-        s.canopyT = Math.min(1, s.canopyT + (s.slideSpeed * dt) / halfW);
-        s.x = artCenterX + s.dir * s.canopyT * halfW;
-        s.y = peakY + s.canopyT * (rimY - peakY);
+        if (s.dir === 0) {
+          s.y = Math.min(rimY, s.y + s.slideSpeed * dt * 0.75);
+          s.canopyT = Math.min(1, Math.max(0, (s.y - peakY) / (rimY - peakY)));
+          s.x = artCenterX;
+        } else {
+          s.canopyT = Math.min(1, s.canopyT + (s.slideSpeed * dt) / halfW);
+          s.x = artCenterX + s.dir * s.canopyT * halfW;
+          s.y = peakY + s.canopyT * (rimY - peakY);
+        }
       }
 
       const pastEdge = s.canopyT >= 1;
       if (pastEdge) {
-        s.edgeX = s.dir === -1 ? umbrellaArtStartX : umbrellaArtStartX + umbrellaArtWidth;
+        s.edgeX = s.dir === 0 ? artCenterX : (s.dir === -1 ? umbrellaArtStartX : umbrellaArtStartX + umbrellaArtWidth);
         s.edgeY = rimY;
         s.x = s.edgeX;
         s.y = s.edgeY;
