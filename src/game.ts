@@ -1287,11 +1287,10 @@ function updatePlaying(state: GameState, dt: number): void {
   // Update hazards
   const groundY = computeGroundY(state);
   const hazardSpeedFactor = state.slowMotionActive ? 0.5 : 1;
-  const toRemove = new Set<number>();
-
+  let hazardWriteIndex = 0;
   for (let i = 0; i < state.hazards.length; i++) {
-    if (toRemove.has(i)) continue;
-    const h = state.hazards[i];
+    const h = state.hazards[i]!;
+    let removeHazard = false;
 
     h.prevX = h.x;
     h.prevY = h.y;
@@ -1328,13 +1327,12 @@ function updatePlaying(state: GameState, dt: number): void {
 
         // No score/combo increment here - particles handle scoring when they hit umbrella
         state.audioEvents.push({ kind: 'block', hazardType: h.type });
-        toRemove.add(i);
-        continue;
+        removeHazard = true;
       }
     }
 
     // Traveler hit
-    if (!h.blocked) {
+    if (!removeHazard && !h.blocked) {
       const dx = Math.abs(h.x - state.travelerX);
       if (dx < 22 && h.y >= state.travelerY - 8 && h.y <= state.travelerY + 38) {
         if (state.pipePointsActive) {
@@ -1359,24 +1357,25 @@ function updatePlaying(state: GameState, dt: number): void {
             state.audioEvents.push({ kind: 'death' });
           }
         }
-        toRemove.add(i);
-        continue;
+        removeHazard = true;
       }
     }
 
     // Ground collision — spawn splash before removing (no score)
-    if (h.y > groundY) {
+    if (!removeHazard && h.y > groundY) {
       // Only spawn if not already blocked (umbrella hit)
       if (!h.blocked) {
         // Missing hazards does not break combo; combo decay is timer-based.
         spawnSplash(state, h.x, h.y, h.type, false, 1, h.glyph);
       }
-      toRemove.add(i);
+      removeHazard = true;
+    }
+
+    if (!removeHazard) {
+      state.hazards[hazardWriteIndex++] = h;
     }
   }
-
-  const removeArr = Array.from(toRemove).sort((a, b) => b - a);
-  for (const idx of removeArr) state.hazards.splice(idx, 1);
+  state.hazards.length = hazardWriteIndex;
 
   if (state.hitCooldown > 0) state.hitCooldown -= dt;
   if (state.deathFlash > 0) state.deathFlash -= dt;
@@ -1390,8 +1389,10 @@ function updatePlaying(state: GameState, dt: number): void {
 }
 
 function updateParticles(state: GameState, dt: number): void {
-  for (let i = state.particles.length - 1; i >= 0; i--) {
-    const p = state.particles[i];
+  let particleWriteIndex = 0;
+  for (let i = 0; i < state.particles.length; i++) {
+    const p = state.particles[i]!;
+    let removeParticle = false;
     p.x += p.vx * dt;
     p.y += p.vy * dt;
     p.vy += 140 * dt;
@@ -1411,19 +1412,24 @@ function updateParticles(state: GameState, dt: number): void {
       spawnScorePopup(state, popupX, popupY, pts, state.combo);
       state.audioEvents.push({ kind: 'block', hazardType: p.type });
       // Remove particle on hit
-      state.particles.splice(i, 1);
-      continue;
+      removeParticle = true;
     }
 
     // Upward-moving splash particles can strike cloud bodies and create a small burst.
-    if (!p.fromCloudHit && p.vy < 0 && pointHitsAnyCloud(state, p.x, p.y)) {
+    if (!removeParticle && !p.fromCloudHit && p.vy < 0 && pointHitsAnyCloud(state, p.x, p.y)) {
       spawnCloudHitBurst(state, p.x, p.y, p.type);
-      state.particles.splice(i, 1);
-      continue;
+      removeParticle = true;
     }
-    
-    if (p.life <= 0) state.particles.splice(i, 1);
+
+    if (!removeParticle && p.life <= 0) {
+      removeParticle = true;
+    }
+
+    if (!removeParticle) {
+      state.particles[particleWriteIndex++] = p;
+    }
   }
+  state.particles.length = particleWriteIndex;
 }
 
 function updateHeartExplosions(state: GameState, dt: number): void {

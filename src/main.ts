@@ -445,11 +445,11 @@ function buildBackgroundOccluders(s: GameState): BgOccluder[] {
   // The circle obstacle adds the wrap glow around it; the rect ensures nothing
   // draws inside the sprite itself.
   const travelerSize = sz(W / 40, 14, 22);
-  const travelerW = travelerSize * 2.6;
-  const travelerH = travelerSize * 3.1;
+  const travelerW = travelerSize * 2.2;
+  const travelerH = travelerSize * 2.75;
   out.push({
     x: s.travelerX - travelerW * 0.5,
-    y: s.travelerY + travelerSize * 0.05,
+    y: s.travelerY + travelerSize * 0.22,
     w: travelerW,
     h: travelerH,
   });
@@ -500,10 +500,10 @@ function buildBackgroundCircleObstacles(s: GameState): BgCircleObstacle[] {
   const travelerSize = sz(W / 40, 14, 22);
   out.push({
     cx: s.travelerX,
-    cy: s.travelerY + travelerSize * 1.15,
-    rx: travelerSize * 1.25,
-    ry: travelerSize * 1.55,
-    hPad: 1,
+    cy: s.travelerY + travelerSize * 1.05,
+    rx: travelerSize * 1.05,
+    ry: travelerSize * 1.25,
+    hPad: 0,
     vPad: 0,
   });
 
@@ -531,6 +531,7 @@ function buildBackgroundCircleObstacles(s: GameState): BgCircleObstacle[] {
 
 // ─── State + loop ─────────────────────────────────────────────────────────────
 let state: GameState;
+let emitPointsAccumulator = 0;
 function init(): void {
   resize();
   buildStars(W, H);
@@ -546,7 +547,11 @@ function loop(ts: number): void {
   lastTime = ts;
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
   updateParticleSystem(dt);
-  updateCloudEmitPoints(state);
+  emitPointsAccumulator += dt;
+  if (emitPointsAccumulator >= EMIT_POINTS_UPDATE_INTERVAL) {
+    updateCloudEmitPoints(state);
+    emitPointsAccumulator = emitPointsAccumulator % EMIT_POINTS_UPDATE_INTERVAL;
+  }
   update(state, dt);
   updateUmbrellaPhysics(state, dt);
   updateAsciiBackground(dt);
@@ -765,9 +770,9 @@ function calculateGlyphOffset(glyphX: number, glyphY: number, s: GameState): { d
   const travelerSize = sz(W / 40, 14, 22);
   objects.push({
     cx: s.travelerX,
-    cy: s.travelerY + travelerSize * 0.8,
-    rx: travelerSize * 1.5,
-    ry: travelerSize * 1.2,
+    cy: s.travelerY + travelerSize * 0.95,
+    rx: travelerSize * 1.2,
+    ry: travelerSize * 1.0,
   });
 
   // ── Clouds: match buildBackgroundCircleObstacles exactly ──
@@ -947,6 +952,8 @@ const CLOUD_EMIT_SAMPLE_COLS = 18;
 const CLOUD_EMIT_SAMPLE_ROWS = 8;
 const CLOUD_EMIT_MAX_POINTS = 72;
 const WEATHER_FONT_SCALE = 1.28;
+const MAX_FIELD_CELLS = 320_000;
+const EMIT_POINTS_UPDATE_INTERVAL = 1 / 12;
 function brightnessToCharsetIndex(brightness: number): number {
   const adjusted = Math.sqrt(brightness);
   return Math.min(Math.max(Math.floor(adjusted * (CLOUD_CHARSET.length - 1)), 0), CLOUD_CHARSET.length - 1);
@@ -1018,6 +1025,11 @@ function updateParticleTypeWeights(level: number) {
 const PARTICLE_TYPE_KEYS = Object.keys(PARTICLE_TYPE_WEIGHTS);
 const PARTICLE_TYPE_ORDINAL: Record<string, number> = {};
 for (let i = 0; i < PARTICLE_TYPE_KEYS.length; i++) PARTICLE_TYPE_ORDINAL[PARTICLE_TYPE_KEYS[i]] = i + 1;
+const PARTICLE_TYPE_BY_ORDINAL: Array<ParticleType | undefined> = [];
+for (let i = 0; i < PARTICLE_TYPE_KEYS.length; i++) {
+  const key = PARTICLE_TYPE_KEYS[i] as ParticleType;
+  PARTICLE_TYPE_BY_ORDINAL[i + 1] = key;
+}
 
 function sampleTypeFromWeights(weights: Record<string, number>): string {
   const entries = Object.entries(weights);
@@ -1107,6 +1119,12 @@ function initParticleSystem(s: GameState): void {
   CANVAS_H = Math.round(Math.max(120, Math.min(Math.round(s.H * 0.22), 420)));
   FIELD_COLS = CANVAS_W * FIELD_OVERSAMPLE;
   FIELD_ROWS = CANVAS_H * FIELD_OVERSAMPLE;
+  const totalCells = FIELD_COLS * FIELD_ROWS;
+  if (totalCells > MAX_FIELD_CELLS) {
+    const scale = Math.sqrt(MAX_FIELD_CELLS / totalCells);
+    FIELD_COLS = Math.max(1, Math.floor(FIELD_COLS * scale));
+    FIELD_ROWS = Math.max(1, Math.floor(FIELD_ROWS * scale));
+  }
   FIELD_SCALE_X = FIELD_COLS / CANVAS_W;
   FIELD_SCALE_Y = FIELD_ROWS / CANVAS_H;
   // assign particle types using the central weights map (easy to change/extend)
@@ -1261,10 +1279,8 @@ function updateCloudEmitPoints(s: GameState): void {
         const gx = Math.floor(fx * FIELD_SCALE_X);
         const gy = Math.floor(fy * FIELD_SCALE_Y);
         if (gx >= 0 && gx < FIELD_COLS && gy >= 0 && gy < FIELD_ROWS && particleTypeField) {
-          const val = particleTypeField[gy * FIELD_COLS + gx];
-          for (const key of PARTICLE_TYPE_KEYS) {
-            if (PARTICLE_TYPE_ORDINAL[key] === val) { pType = key as ParticleType; break; }
-          }
+          const val = particleTypeField[gy * FIELD_COLS + gx]!;
+          pType = PARTICLE_TYPE_BY_ORDINAL[val];
         }
         emitPoints.push({ dx: absX - cloud.x, dy: absY - cloud.y, pType });
       }
@@ -1395,10 +1411,8 @@ function drawClouds(s: GameState): void {
         const gx = Math.floor(fx * FIELD_SCALE_X);
         const gy = Math.floor(fy * FIELD_SCALE_Y);
         if (gx >= 0 && gx < FIELD_COLS && gy >= 0 && gy < FIELD_ROWS) {
-          const val = particleTypeField[gy * FIELD_COLS + gx];
-          for (const key of PARTICLE_TYPE_KEYS) {
-            if (PARTICLE_TYPE_ORDINAL[key] === val) { pType = key as ParticleType; break; }
-          }
+          const val = particleTypeField[gy * FIELD_COLS + gx]!;
+          pType = PARTICLE_TYPE_BY_ORDINAL[val];
         }
       }
 
