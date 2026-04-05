@@ -1,6 +1,7 @@
 // Expose for game.ts
 if (typeof window !== 'undefined') {
   (window as any).initParticleSystem = initParticleSystem;
+  (window as any).updateCloudEmitPoints = updateCloudEmitPoints;
 }
 import './style.css';
 import {
@@ -64,10 +65,10 @@ function resize(): void {
 const FONT_FAMILY = '"IBM Plex Mono", monospace';
 //const CLOUD_FONT_FAMILY = '"IBM Plex Sans", sans-serif'; for proportional
 const CLOUD_FONT_FAMILY = '"IBM Plex Mono", monospace';
-function fnt(size: number, weight: 400 | 700 = 400): string {
+function fnt(size: number, weight: number = 400): string {
   return `${weight} ${size}px ${FONT_FAMILY}`;
 }
-function cloudFnt(size: number, weight: 400 | 700 = 700): string {
+function cloudFnt(size: number, weight: number = 700): string {
   return `italic ${weight} ${size}px ${CLOUD_FONT_FAMILY}`;
 }
 function sz(base: number, minV: number, maxV: number): number {
