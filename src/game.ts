@@ -457,11 +457,12 @@ function maintainClouds(state: GameState): void {
   for (const c of state.clouds) typeCounts[c.type]++;
 
   while (state.clouds.length < target) {
-    // Prioritise types that are missing or underrepresented
     let type: 'rain' | 'snow' | 'hail';
-    if (level < 2) {
-      // Early game: only rain + snow
-      type = typeCounts.rain <= typeCounts.snow ? 'rain' : 'snow';
+    if (level < 1) {
+      type = 'rain';
+    } else if (level === 1) {
+      // Only rain clouds at level 1
+      type = 'rain';
     } else {
       // Pick the least-represented type
       if (typeCounts.hail === 0 && level >= 2) {
@@ -474,7 +475,6 @@ function maintainClouds(state: GameState): void {
         type = 'hail';
       }
     }
-    // Spread new clouds across the width
     const x = Math.random() * W;
     spawnCloud(state, x, type);
     typeCounts[type]++;
@@ -495,17 +495,19 @@ function spawnHazardFromCloud(state: GameState, cloud: Cloud): void {
   // For rain, mix in CAT/DOG glyphs starting at level 2, increasing their frequency with level
   if (cloud.type === 'rain') {
     const baseGlyphs = ['|', '/'];
-    let catDogWeight = 0;
+    let catDogRate = 0;
     if (level >= 2) {
-      // At level 2, 1/6 chance; increases by 1/6 per level up to 4/6
-      catDogWeight = Math.min(4, level - 1); // 1 at lvl2, 2 at lvl3, ... 4 at lvl5+
+      // Start at 20% at level 2, increase by 20% per level
+      catDogRate = Math.min(1, 0.2 * (level - 1));
     }
     // Build weighted glyphs array
     glyphs = [];
     // Add base rain glyphs (always 2 each)
     for (let i = 0; i < 2; i++) glyphs.push('|', '/');
-    // Add cat/dog glyphs, more as level increases
-    for (let i = 0; i < catDogWeight; i++) glyphs.push(CAT_GLYPH, DOG_GLYPH);
+    // Add cat/dog glyphs based on rate
+    const baseCount = glyphs.length;
+    const catDogCount = Math.round(baseCount * catDogRate / (1 - catDogRate));
+    for (let i = 0; i < catDogCount; i++) glyphs.push(CAT_GLYPH, DOG_GLYPH);
   }
   const glyph  = glyphs[Math.floor(Math.random() * glyphs.length)];
 
@@ -1050,7 +1052,9 @@ function updatePlaying(state: GameState, dt: number): void {
       const dx = Math.abs(h.x - state.travelerX);
       if (dx < 22 && h.y >= state.travelerY - 8 && h.y <= state.travelerY + 38) {
         if (state.hitCooldown <= 0) {
-          state.hp = Math.max(0, state.hp - 1);
+          let damage = 1;
+          if (h.type === 'hail') damage = 2;
+          state.hp = Math.max(0, state.hp - damage);
           state.hitCooldown = 1.2;
           state.deathFlash = 1.2;
           state.combo = 0;
