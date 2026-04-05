@@ -1568,7 +1568,8 @@ function getCloudLines(c: Cloud, elapsed: number): string[];
 function getCloudLines(c: Cloud, elapsed = 0): string[] {
   const width = 20 + (c.id % 3) * 3 + (c.type === 'hail' ? 4 : 0);
   const phase = elapsed * (c.type === 'rain' ? 1.2 : c.type === 'snow' ? 0.7 : c.type === 'purpleRain' ? 1.0 : 0.5) + c.id * 0.9;
-  const charset = (c.visualType ? CLOUD_CHARSETS[c.visualType] : CLOUD_CHARSET) || CLOUD_CHARSET;
+  const cloudType: ParticleType = c.type === 'purpleRain' ? 'purpleRain' : (c.visualType ?? 'rain');
+  const charset = CLOUD_CHARSETS[cloudType] || CLOUD_CHARSET;
   const body = makeCloudBody(width, charset, phase, false);
   const fill = makeCloudBody(width, charset, phase + 0.9, true);
   const drip = makeCloudDrip(charset, width, phase + 1.7);
@@ -1703,8 +1704,14 @@ function drawClouds(s: GameState): void {
     renderer.drawBlock(ctx, cloudBlock, cloudX, cloudY, {
       color: COLORS.PURPLE_RAIN,
       shadowColor: COLORS.PURPLE_GLOW,
-      shadowBlur: 14,
-      alpha: 0.38,
+      shadowBlur: 16,
+      alpha: 0.68,
+    });
+    renderer.drawBlock(ctx, cloudBlock, cloudX, cloudY, {
+      color: COLORS.PURPLE_RAIN,
+      shadowColor: COLORS.PURPLE_GLOW,
+      shadowBlur: 8,
+      alpha: 0.94,
     });
   }
 }

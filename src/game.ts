@@ -473,9 +473,13 @@ const UMBRELLA_CANOPY_LINES = 6;
 const UMBRELLA_HANDLE_LINES = 8;
 const UMBRELLA_FOOT_LINES = 4;
 const CLOUD_ART_LINES = 4;
+// Visual Y-axis trim for pointer tracking so the umbrella sits a touch higher.
+const UMBRELLA_POINTER_Y_TRIM = -8;
+const CLOUD_RENDER_FONT_SCALE = 1.28;
 
 function computeCloudLineH(W: number): number {
-  return Math.round(Math.max(9, Math.min(14, W / 75)) * 1.35);
+  // Match src/main.ts cloud renderer sizing: baseSize * WEATHER_FONT_SCALE, then line-height multiplier.
+  return Math.round(Math.max(9, Math.min(14, W / 75)) * CLOUD_RENDER_FONT_SCALE * 1.35);
 }
 
 function computeLegacyHudBarHeight(W: number, H: number): number {
@@ -495,7 +499,8 @@ function getGameHudBarHeight(state: Pick<GameState, 'W' | 'H' | 'hudBarHeight'>)
 function computeCloudBottom(state: Pick<GameState, 'W' | 'H' | 'clouds' | 'hudBarHeight'>, cloud: Cloud): number {
   const hudH = getGameHudBarHeight(state);
   const lineH = computeCloudLineH(state.W);
-  const startY = Math.max(hudH + 6, cloud.y);
+  // Match drawClouds() startY in src/main.ts.
+  const startY = Math.max(hudH + 5, cloud.y);
   return startY + CLOUD_ART_LINES * lineH;
 }
 
@@ -1370,7 +1375,7 @@ function updatePlaying(state: GameState, dt: number): void {
   }
   const lerpSpeed = 20;
   const umbrellaLineH = computeUmbrellaLineH(state.W);
-  const handleAnchorOffset = umbrellaLineH * (UMBRELLA_CANOPY_LINES - 1 + UMBRELLA_HANDLE_LINES);
+  const handleAnchorOffset = umbrellaLineH * (UMBRELLA_CANOPY_LINES - 1 + UMBRELLA_HANDLE_LINES) + UMBRELLA_POINTER_Y_TRIM;
   state.umbrellaX += (state.pointerX - state.umbrellaX) * Math.min(1, lerpSpeed * dt);
   state.umbrellaY += ((state.pointerY - handleAnchorOffset) - state.umbrellaY) * Math.min(1, lerpSpeed * dt);
   const hw = state.umbrellaW / 2;
