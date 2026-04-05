@@ -1,3 +1,12 @@
+import type { PowerUpPickup, PowerUpRuntime, PowerUpType } from './power-ups.ts';
+import {
+  maybeSpawnComboPowerUp,
+  updatePowerUpPickups,
+  updatePowerUpTimers,
+} from './power-ups.ts';
+
+export { powerUpLabel } from './power-ups.ts';
+
 // --- Performance caps ---
 const MAX_HAZARDS = 120;
 const MAX_PARTICLES = 180;
@@ -163,25 +172,6 @@ export interface Cloud {
   artW: number;
   // emit points (relative to cloud center) sampled from visible cloud topology
   emitPoints: Array<{ dx: number; dy: number; pType?: 'rain' | 'snow' | 'hail' }>;
-}
-
-export type PowerUpType =
-  | 'shield'
-  | 'doublePoints'
-  | 'slowMotion'
-  | 'healthBoost'
-  | 'hazardClear'
-  | 'findBoost';
-
-export interface PowerUpPickup {
-  id: number;
-  x: number;
-  y: number;
-  baseY: number;
-  type: PowerUpType;
-  age: number;
-  ttl: number;
-  phase: number;
 }
 
 export type AudioEvent =
@@ -371,8 +361,6 @@ export const COLORS = {
 };
 
 const GROUND_Y_RATIO = 0.91;
-const POWER_UP_THRESHOLD = 40;
-const POWER_UP_PICKUP_TTL = 12;
 const MAX_HEART_EXPLOSIONS = 120;
 const SCORE_POPUP_OVERLOAD_THRESHOLD = 24;
 const MAX_SCORE_POPUPS = 40;
@@ -383,24 +371,6 @@ const SCORE_POPUP_STACK_STEP_Y = 14;
 const SCORE_POPUP_STACK_OFFSETS = [0, -12, 12, -20, 20, -28, 28];
 const SCORE_POPUP_MIN_DISTANCE_X = 54;
 const SCORE_POPUP_MIN_DISTANCE_Y = 18;
-
-const POWER_UP_WEIGHTS: Array<{ type: PowerUpType; weight: number }> = [
-  { type: 'shield', weight: 16 },
-  { type: 'doublePoints', weight: 16 },
-  { type: 'slowMotion', weight: 14 },
-  { type: 'healthBoost', weight: 12 },
-  { type: 'hazardClear', weight: 11 },
-  { type: 'findBoost', weight: 10 },
-];
-
-const POWER_UP_TEXT: Record<PowerUpType, string> = {
-  shield: '|SHIELD>',
-  doublePoints: '*2X POINTS*',
-  slowMotion: 'SNAIL...',
-  healthBoost: '+HEALTH+',
-  hazardClear: '!CLEAR!',
-  findBoost: '=>FIND<=',
-};
 
 // ─── Init ─────────────────────────────────────────────────────────────────────
 
@@ -1033,36 +1003,6 @@ function spawnHeartExplosion(state: GameState, centerX: number, centerY: number,
   }
 }
 
-function currentPowerUpLabel(type: PowerUpType): string {
-  return POWER_UP_TEXT[type];
-}
-
-export function powerUpLabel(type: PowerUpType): string {
-  return currentPowerUpLabel(type);
-}
-
-function powerUpDuration(type: PowerUpType): number {
-  switch (type) {
-    case 'shield': return 5;
-    case 'doublePoints': return 10;
-    case 'slowMotion': return 8;
-    case 'findBoost': return 6;
-    case 'healthBoost': return 1.3;
-    case 'hazardClear': return 1.1;
-    default: return 1.2;
-  }
-}
-
-function chooseRandomPowerUp(): PowerUpType {
-  const total = POWER_UP_WEIGHTS.reduce((sum, item) => sum + item.weight, 0);
-  let roll = Math.random() * total;
-  for (const item of POWER_UP_WEIGHTS) {
-    roll -= item.weight;
-    if (roll <= 0) return item.type;
-  }
-  return POWER_UP_WEIGHTS[POWER_UP_WEIGHTS.length - 1]!.type;
-}
-
 function clearHazards(state: GameState): void {
   for (let i = 0; i < state.hazards.length; i++) {
     releaseHazard(state.hazards[i]!);
@@ -1099,141 +1039,16 @@ function restoreHealth(state: GameState): void {
   state.hp = Math.min(state.maxHp, state.hp + boost);
 }
 
-function resetTimedPowerUps(state: GameState): void {
-  state.shieldActive = false;
-  state.doublePointsActive = false;
-  state.slowMotionActive = false;
-  state.findBoostActive = false;
-}
-
-function activatePowerUp(state: GameState, type: PowerUpType): void {
-  resetTimedPowerUps(state);
-  state.activePowerUp = type;
-  state.powerUpTimer = powerUpDuration(type);
-  state.powerUpText = currentPowerUpLabel(type);
-  state.powerUpTextTimer = Math.max(1.3, state.powerUpTimer);
-  state.powerUpFlashTimer = Math.max(state.powerUpFlashTimer, 0.28);
-
-  switch (type) {
-    case 'shield':
-      state.shieldActive = true;
-      break;
-    case 'doublePoints':
-      state.doublePointsActive = true;
-      break;
-    case 'slowMotion':
-      state.slowMotionActive = true;
-      break;
-    case 'findBoost':
-      state.findBoostActive = true;
-      break;
-    case 'healthBoost':
-      restoreHealth(state);
-      break;
-    case 'hazardClear':
-      clearHazards(state);
-      break;
-  }
-
-  state.audioEvents.push({ kind: 'powerup' });
-}
-
-function maybeSpawnComboPowerUp(state: GameState): void {
-  if (state.combo < POWER_UP_THRESHOLD) return;
-
-  const type = chooseRandomPowerUp();
-  const margin = Math.max(40, Math.min(120, state.W * 0.12));
-  const x = margin + Math.random() * Math.max(1, state.W - margin * 2);
-  const y = state.travelerBaseY - (8 + Math.random() * 16);
-
-  state.powerUpPickups.push({
-    id: state.powerUpPickupIdCounter++,
-    x,
-    y,
-    baseY: y,
-    type,
-    age: 0,
-    ttl: POWER_UP_PICKUP_TTL,
-    phase: Math.random() * Math.PI * 2,
-  });
-
-  state.combo = 0;
-  state.comboTimer = 0;
-  state.powerUpText = currentPowerUpLabel(type);
-  state.powerUpTextTimer = 1.0;
-}
-
-function updatePowerUpPickups(state: GameState, dt: number): void {
-  for (let i = state.powerUpPickups.length - 1; i >= 0; i--) {
-    const pickup = state.powerUpPickups[i];
-    if (!pickup || typeof pickup.age !== 'number') {
-      // Remove undefined/null/invalid elements
-      state.powerUpPickups.splice(i, 1);
-      if (typeof console !== 'undefined') {
-        console.warn('[WARN] Removed invalid or undefined powerUpPickup at index', i, pickup);
-      }
-      continue;
-    }
-    pickup.age += dt;
-    pickup.phase += dt * 3.2;
-    pickup.y = pickup.baseY + Math.sin(pickup.phase) * 8;
-
-    if (state.findBoostActive) {
-      const dx = state.travelerX - pickup.x;
-      const dy = (state.travelerY + 8) - pickup.y;
-      const d = Math.hypot(dx, dy);
-      if (d > 0.001) {
-        const pull = Math.min(280 * dt, d);
-        pickup.x += (dx / d) * pull;
-        pickup.y += (dy / d) * pull;
-        pickup.baseY = pickup.y;
-      }
-    }
-
-    if (pickup.age >= pickup.ttl) {
-      state.powerUpPickups.splice(i, 1);
-      continue;
-    }
-
-    const dx = Math.abs(pickup.x - state.travelerX);
-    const dy = Math.abs(pickup.y - (state.travelerY + 12));
-    if (dx < 40 && dy < 42) {
-      state.powerUpPickups.splice(i, 1);
-      activatePowerUp(state, pickup.type);
-      // Award points for collecting powerup — scales significantly with difficulty
-      const basePowerUpPoints = 200;
-      const difficultyMultiplier = 1 + (state.difficultyLevel * 2);
-      const powerUpPoints = Math.round(basePowerUpPoints * difficultyMultiplier);
-      state.score += scoreWithModifiers(state, powerUpPoints);
-      spawnScorePopup(state, pickup.x, pickup.y - 20, powerUpPoints, 1);
-    }
-  }
-}
-
-function updatePowerUpTimers(state: GameState, dt: number): void {
-  if (state.powerUpTimer > 0) {
-    state.powerUpTimer = Math.max(0, state.powerUpTimer - dt);
-    if (state.powerUpTimer <= 0) {
-      resetTimedPowerUps(state);
-      state.activePowerUp = null;
-    }
-  }
-
-  if (state.powerUpTextTimer > 0) {
-    state.powerUpTextTimer = Math.max(0, state.powerUpTextTimer - dt);
-    if (state.powerUpTextTimer <= 0 && state.powerUpTimer <= 0) {
-      state.powerUpText = '';
-    }
-  }
-
-  if (state.powerUpFlashTimer > 0) {
-    state.powerUpFlashTimer = Math.max(0, state.powerUpFlashTimer - dt);
-  }
-}
-
 function scoreWithModifiers(state: GameState, basePoints: number): number {
   return state.doublePointsActive ? basePoints * 2 : basePoints;
 }
+
+const powerUpRuntime: PowerUpRuntime = {
+  clearHazards,
+  restoreHealth,
+  scoreWithModifiers,
+  spawnScorePopup,
+};
 
 /**
  * The umbrella art rows and their approximate x-offsets (in character columns)
@@ -1591,7 +1406,7 @@ function updatePlaying(state: GameState, dt: number): void {
 
   updateParticles(state, dt);
   updateGroundSnow(state, dt);
-  updatePowerUpPickups(state, dt);
+  updatePowerUpPickups(state, dt, powerUpRuntime);
   maybeSpawnComboPowerUp(state);
   updateScorePopups(state, dt);
   updateUmbrellaSlides(state, dt);
