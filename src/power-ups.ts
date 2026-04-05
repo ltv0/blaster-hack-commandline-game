@@ -45,9 +45,9 @@ const POWER_UP_PICKUP_TTL = 12;
 const POWER_UP_WEIGHTS: Array<{ type: PowerUpType; weight: number }> = [
   { type: 'cd', weight: 14 },
   { type: 'rm', weight: 8 },
-  { type: 'zip', weight: 20 }, // Increased weight for higher likelihood
+  { type: 'zip', weight: 14 }, // Increased weight for higher likelihood
   { type: 'unzip', weight: 8 },
-  { type: 'sudo', weight: 2 },
+  { type: 'sudo', weight: 3 },
   { type: 'shield', weight: 12 },
   { type: 'doublePoints', weight: 30 },
   { type: 'slowMotion', weight: 5 },

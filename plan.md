@@ -196,7 +196,6 @@ Set-ExecutionPolicy -Scope CurrentUser RemoteSigned
 
 #### Low Priority
 - [X] Performance optimization (idk it sucks to run on my pc)
-- [X] Performance optimization (idk it sucks to run on my pc)
 - [ ] Mobile touch improvements
 - [ ] Settings menu
 - [ ] Leaderboards (idk how to hook this up online.)

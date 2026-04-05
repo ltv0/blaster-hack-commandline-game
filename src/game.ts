@@ -528,7 +528,7 @@ export function computeUmbrellaYBounds(state: Pick<GameState, 'W' | 'H' | 'cloud
   }
 
   const groundY = Math.round(state.H * GROUND_Y_RATIO);
-  const visibleCloudGap = Math.max(isPortrait ? 14 : 8, Math.round(umbrellaLineH * (isPortrait ? 1.65 : 1.15)));
+  const visibleCloudGap = Math.max(isPortrait ? 24 : 8, Math.round(umbrellaLineH * (isPortrait ? 2.5 : 1.15)));
   return {
     // umbrellaY maps to one line below the rendered top (startY = umbrellaY - lineH).
     // Stay below the lowest visible cloud with extra portrait clearance.
@@ -1336,7 +1336,7 @@ function updatePlaying(state: GameState, dt: number): void {
   state.bgStarOffset = (state.bgStarOffset + 10 * dt) % Math.max(1, state.H);
 
   // Traveler automatic left-right movement — ramps with both level and elapsed time
-  const levelSpeed = 120 + state.difficultyLevel * 24;
+  const levelSpeed = 120 + Math.sqrt(state.difficultyLevel) * 24;
   const timeSpeedBoost = Math.min(140, state.elapsed * 2.2);
   const speedBoostFactor = state.speedBoostActive ? 1.5 : 1;
   const maxSpeed = Math.min(420, (levelSpeed + timeSpeedBoost) * speedBoostFactor);
