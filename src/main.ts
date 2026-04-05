@@ -317,6 +317,9 @@ function drawAsciiBackground(
   // Glow width: how many px from a slot edge counts as "near the wrap"
   const glowWidth = bgCellW * 1.0;  // tight glow — only 1 char from the edge
 
+  // Stream of Lorem Ipsum characters (or fallback to random chars if not loaded)
+  const textChars = SKY_TEXT ? (SKY_TEXT.replace(/\s+/g, ' ').trim() + ' ') : '';
+
   for (let row = 0; row < bgRows; row++) {
     const y = row * bgCellH - scrolledY;
     if (y > maxY + bgCellH) continue;
@@ -399,7 +402,16 @@ function drawAsciiBackground(
         * (1 + slotResult.wrapT * 0.55);   // edge glow: up to +55% brightness
 
       if (alpha < 0.004) continue;
-      const block = renderer.getBlock(BG_CHARS[cell.charIndex!], bgFont, bgCellH);
+      
+      // Use Lorem Ipsum text if available, otherwise fallback to random BG_CHARS
+      let charToUse: string;
+      if (textChars.length > 0) {
+        charToUse = textChars[idx % textChars.length]!;
+      } else {
+        charToUse = BG_CHARS[cell.charIndex!]!;
+      }
+      
+      const block = renderer.getBlock(charToUse, bgFont, bgCellH);
       renderer.drawBlock(ctx, block, drawX, drawY, { color: tintColor, alpha });
     }
   }
@@ -468,7 +480,7 @@ function buildBackgroundCircleObstacles(s: GameState): BgCircleObstacle[] {
   const canopyRimY = artStartY + UMBRELLA_CANOPY_LINES_BG * umbrellaLineH; // bottom of canopy
   const canopyCx = artStartX + artW / 2;
   // Centre is 70% of the way down from artStartY to the rim — bottom-heavy
-  const canopyCy = artStartY + UMBRELLA_CANOPY_LINES_BG * umbrellaLineH * 0.70;
+  const canopyCy = artStartY + UMBRELLA_CANOPY_LINES_BG * umbrellaLineH * 0.60;
   const canopyRx = artW / 2;
   // ry: distance from centre to the rim (below) — top clips naturally
   const canopyRy = canopyRimY - canopyCy;
@@ -689,12 +701,204 @@ function drawBoot(s: GameState): void {
     cx, H - 18, { color: COLORS.dim, align: 'center', alpha: 0.4 });
 }
 
+// ─── Sky text background ──────────────────────────────────────────────────────
+let SKY_TEXT = 'Lorem ipsum dolor sit amet, consectetur adipiscing elit. ';
+async function loadSkyText(): Promise<void> {
+  try {
+    const url = new URL('./LoremIpsum.txt', import.meta.url).href;
+    const res = await fetch(url);
+    if (res.ok) {
+      SKY_TEXT = await res.text();
+      return;
+    }
+  } catch (e) {
+    // ignore and keep fallback
+  }
+}
+
+let skyGrid: string[] = [];
+let skyGridCols = 0;
+let skyGridRows = 0;
+
+// Calculate glyph offset based on proximity to objects (cursor, umbrella, traveler, clouds)
+function calculateGlyphOffset(glyphX: number, glyphY: number, s: GameState): { dx: number; dy: number } {
+  let totalDx = 0;
+  let totalDy = 0;
+  const repulsionStrength = 12;
+  const repulsionFalloff = 120; // Distance over which repulsion decays
+
+  // Collect object ellipses as (cx, cy, rx, ry)
+  const objects: Array<{ cx: number; cy: number; rx: number; ry: number }> = [];
+
+  // Cursor (bgHover when active) — treat as circle
+  if (bgHoverActive) {
+    const cursorRadius = 40;
+    objects.push({ cx: bgHoverX, cy: bgHoverY, rx: cursorRadius, ry: cursorRadius });
+  }
+
+  // ── Umbrella: match buildBackgroundCircleObstacles exactly ──
+  const umbrellaSize = sz(W / 100, 7, 11);
+  const umbrellaLineH = s.umbrellaArtLineH > 0 ? s.umbrellaArtLineH : Math.round(umbrellaSize * 1.15);
+  const artW = s.umbrellaArtWidth > 0 ? s.umbrellaArtWidth : Math.max(120, s.umbrellaW * 1.2);
+  const artStartX = Number.isFinite(s.umbrellaArtStartX) ? s.umbrellaArtStartX : s.umbrellaX - artW * 0.5;
+  const artStartY = Number.isFinite(s.umbrellaArtStartY) ? s.umbrellaArtStartY : s.umbrellaY - umbrellaLineH;
+
+  // Canopy ellipse
+  const UMBRELLA_CANOPY_LINES_BG = 6;
+  const canopyRimY = artStartY + UMBRELLA_CANOPY_LINES_BG * umbrellaLineH;
+  const canopyCx = artStartX + artW / 2;
+  const canopyCy = artStartY + UMBRELLA_CANOPY_LINES_BG * umbrellaLineH * 0.70;
+  const canopyRx = artW / 2;
+  const canopyRy = canopyRimY - canopyCy;
+  objects.push({ cx: canopyCx, cy: canopyCy, rx: canopyRx, ry: canopyRy });
+
+  // Handle ellipse
+  const HANDLE_LINES_BG = 12;
+  const handleTop = artStartY + UMBRELLA_CANOPY_LINES_BG * umbrellaLineH;
+  const handleCy = handleTop + (HANDLE_LINES_BG * umbrellaLineH) / 2;
+  objects.push({
+    cx: canopyCx, cy: handleCy,
+    rx: bgCellW * 1.1, ry: (HANDLE_LINES_BG * umbrellaLineH) / 2,
+  });
+
+  // ── Traveler ──
+  const travelerSize = sz(W / 40, 14, 22);
+  objects.push({
+    cx: s.travelerX,
+    cy: s.travelerY + travelerSize * 0.8,
+    rx: travelerSize * 1.5,
+    ry: travelerSize * 1.2,
+  });
+
+  // ── Clouds: match buildBackgroundCircleObstacles exactly ──
+  const cloudFontSize = sz(W / 75, 9, 14);
+  const cloudLineH = Math.round(cloudFontSize * 1.35);
+  const cloudHudH = sz(W / 70, 10, 14) + 20;
+  const cloudStartY = cloudHudH + 5;
+  const CLOUD_ART_LINES = 4;
+  const cloudArtH = CLOUD_ART_LINES * cloudLineH;
+  for (let i = 0; i < Math.min(8, s.clouds.length); i++) {
+    const c = s.clouds[i]!;
+    const artWCloud = c.artW > 0 ? c.artW : Math.max(80, Math.min(220, W * 0.18));
+    const cloudTopY = Math.max(cloudStartY, c.y);
+    const cloudCy = cloudTopY + cloudArtH * 0.70;
+    const cloudRy = cloudArtH * 0.30;
+    objects.push({ cx: c.x, cy: cloudCy, rx: artWCloud / 2, ry: cloudRy });
+  }
+
+  // Calculate repulsion from each ellipse using same logic as ellipseIntervalForBand
+  for (const obj of objects) {
+    const dx = glyphX - obj.cx;
+    const dy = glyphY - obj.cy;
+
+    // For ellipse (x/rx)² + (y/ry)² = 1, compute distance to edge
+    // Normalized coordinates
+    const nx = Math.abs(dx) / obj.rx;
+    const ny = Math.abs(dy) / obj.ry;
+
+    // If inside or very close to ellipse, apply repulsion
+    if (nx < 1.0 && ny < 1.0) {
+      // Inside ellipse — strong repulsion
+      const t = Math.max(nx, ny); // parametric distance (0 at center, 1 at edge)
+      const force = (1 - t) * repulsionStrength;
+      const angle = Math.atan2(dy, dx);
+      totalDx += Math.cos(angle) * force;
+      totalDy += Math.sin(angle) * force;
+    } else {
+      // Outside but within falloff distance — weak repulsion
+      const dist = Math.hypot(dx, dy);
+      if (dist < repulsionFalloff) {
+        const force = Math.max(0, (repulsionFalloff - dist) / repulsionFalloff) * repulsionStrength * 0.3;
+        const angle = Math.atan2(dy, dx);
+        totalDx += Math.cos(angle) * force;
+        totalDy += Math.sin(angle) * force;
+      }
+    }
+  }
+
+  return { dx: totalDx, dy: totalDy };
+}
+
+function drawSkyTextBackground(s: GameState): void {
+  if (!SKY_TEXT) return; // not loaded yet
+  const groundY = travelerGroundY(s);
+  if (groundY <= 0) return;
+
+  const size = sz(W / 60, 11, 15);
+  const f = fnt(size, 700);
+  const lineH = Math.ceil(size * 1.2);
+
+  const charW = Math.max(4, renderer.measureWidth('M', f));
+  const hudH = sz(W / 70, 10, 14) + 20;
+  const startY = hudH + 5;
+  const skyHeight = Math.max(0, groundY - startY);
+  const cols = Math.max(1, Math.floor(W / charW));
+  const rows = Math.max(1, Math.floor(skyHeight / lineH));
+
+  // If grid size hasn't changed we can keep previous content
+  if (cols === skyGridCols && rows === skyGridRows && skyGrid.length > 0) {
+    // Draw the pre-computed grid with per-glyph offset based on object proximity
+    ctx.save();
+    ctx.globalAlpha = 0.45;
+    for (let r = 0; r < rows; r++) {
+      const line = skyGrid[r] || ' '.repeat(cols);
+      for (let c = 0; c < line.length; c++) {
+        const char = line[c];
+        const baseX = c * charW;
+        const baseY = startY + r * lineH;
+        const offset = calculateGlyphOffset(baseX, baseY, s);
+        const glyphX = baseX + offset.dx;
+        const glyphY = baseY + offset.dy;
+        const block = renderer.getBlock(char, f, lineH);
+        renderer.drawBlock(ctx, block, glyphX, glyphY, { color: COLORS.dim, alpha: 0.45 });
+      }
+    }
+    ctx.restore();
+    return;
+  }
+
+  skyGridCols = cols;
+  skyGridRows = rows;
+  skyGrid = [];
+
+  // Flatten the SKY_TEXT into a stream of characters
+  const textChars = SKY_TEXT.replace(/\s+/g, ' ').trim() + ' ';
+  let idx = 0;
+  for (let r = 0; r < rows; r++) {
+    let rowStr = '';
+    for (let c = 0; c < cols; c++) {
+      rowStr += textChars[idx % textChars.length];
+      idx++;
+    }
+    skyGrid.push(rowStr);
+  }
+
+  // Render the full sky grid with per-glyph offset
+  ctx.save();
+  ctx.globalAlpha = 0.45;
+  for (let r = 0; r < rows; r++) {
+    const line = skyGrid[r] || ' '.repeat(cols);
+    for (let c = 0; c < line.length; c++) {
+      const char = line[c];
+      const baseX = c * charW;
+      const baseY = startY + r * lineH;
+      const offset = calculateGlyphOffset(baseX, baseY, s);
+      const glyphX = baseX + offset.dx;
+      const glyphY = baseY + offset.dy;
+      const block = renderer.getBlock(char, f, lineH);
+      renderer.drawBlock(ctx, block, glyphX, glyphY, { color: COLORS.dim, alpha: 0.45 });
+    }
+  }
+  ctx.restore();
+}
+
 // ─── Game world ───────────────────────────────────────────────────────────────
 function drawGame(s: GameState): void {
+  // ASCII background now displays Lorem Ipsum text directly (no separate sky text layer needed)
   const repulsors = buildBackgroundRepulsors(s);
   const occluders = buildBackgroundOccluders(s);
   const circleObstacles = buildBackgroundCircleObstacles(s);
-  drawAsciiBackground(s.bgStarOffset * 0.3, 0.14, '#5f9f7b', repulsors, occluders, circleObstacles);
+  drawAsciiBackground(s.bgStarOffset * 0.3, 0.15, '#8bc98b', repulsors, occluders, circleObstacles);
   if (SHOW_CLOUD_SOURCE_FIELD) drawSourceField();
   drawStars(s);
   drawClouds(s);
