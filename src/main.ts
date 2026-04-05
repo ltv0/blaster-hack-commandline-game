@@ -1633,10 +1633,7 @@ function powerUpColor(type: GameState['activePowerUp'] | NonNullable<GameState['
     case 'slowMotion': return '#84b6ff';
     case 'healthBoost': return COLORS.brightRed;
     case 'hazardClear': return COLORS.white;
-    case 'clearScreen': return COLORS.white;
     case 'findBoost': return COLORS.brightAmber;
-    case 'pipePoints': return COLORS.green;
-    case 'killHazards': return COLORS.red;
     default: return COLORS.green;
   }
 }

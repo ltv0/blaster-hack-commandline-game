@@ -109,10 +109,7 @@ export type PowerUpType =
   | 'slowMotion'
   | 'healthBoost'
   | 'hazardClear'
-  | 'clearScreen'
-  | 'findBoost'
-  | 'pipePoints'
-  | 'killHazards';
+  | 'findBoost';
 
 export interface PowerUpPickup {
   id: number;
@@ -221,7 +218,6 @@ export interface GameState {
   doublePointsActive: boolean;
   slowMotionActive: boolean;
   findBoostActive: boolean;
-  pipePointsActive: boolean;
 
   // difficulty
   elapsed: number;
@@ -323,10 +319,7 @@ const POWER_UP_WEIGHTS: Array<{ type: PowerUpType; weight: number }> = [
   { type: 'slowMotion', weight: 14 },
   { type: 'healthBoost', weight: 12 },
   { type: 'hazardClear', weight: 11 },
-  { type: 'clearScreen', weight: 9 },
-  { type: 'findBoost', weight: 9 },
-  { type: 'pipePoints', weight: 8 },
-  { type: 'killHazards', weight: 5 },
+  { type: 'findBoost', weight: 10 },
 ];
 
 const POWER_UP_TEXT: Record<PowerUpType, string> = {
@@ -335,10 +328,7 @@ const POWER_UP_TEXT: Record<PowerUpType, string> = {
   slowMotion: 'SNAIL...',
   healthBoost: '+HEALTH+',
   hazardClear: '!CLEAR!',
-  clearScreen: 'CLS',
   findBoost: 'FIND',
-  pipePoints: 'PIPE',
-  killHazards: 'KILL',
 };
 
 // ─── Init ─────────────────────────────────────────────────────────────────────
@@ -419,7 +409,6 @@ export function createInitialState(W: number, H: number): GameState {
     doublePointsActive: false,
     slowMotionActive: false,
     findBoostActive: false,
-    pipePointsActive: false,
 
     elapsed: 0,
     difficultyLevel: 0,
@@ -931,11 +920,8 @@ function powerUpDuration(type: PowerUpType): number {
     case 'doublePoints': return 10;
     case 'slowMotion': return 8;
     case 'findBoost': return 6;
-    case 'pipePoints': return 5;
     case 'healthBoost': return 1.3;
     case 'hazardClear': return 1.1;
-    case 'clearScreen': return 1.1;
-    case 'killHazards': return 1.1;
     default: return 1.2;
   }
 }
@@ -954,38 +940,9 @@ function clearHazards(state: GameState): void {
   state.hazards.length = 0;
 }
 
-function clearScreen(state: GameState): void {
-  state.hazards.length = 0;
-  state.powerUpPickups.length = 0;
-}
-
 function restoreHealth(state: GameState): void {
   const boost = Math.ceil(state.maxHp * 0.5);
   state.hp = Math.min(state.maxHp, state.hp + boost);
-}
-
-function killRandomHazard(state: GameState): void {
-  if (state.hazards.length === 0) return;
-  const idx = Math.floor(Math.random() * state.hazards.length);
-  state.hazards.splice(idx, 1);
-}
-
-function moveNearestPickupTowardTraveler(state: GameState): void {
-  if (state.powerUpPickups.length === 0) return;
-  let nearest = state.powerUpPickups[0]!;
-  let bestD2 = Number.POSITIVE_INFINITY;
-  for (const p of state.powerUpPickups) {
-    const dx = p.x - state.travelerX;
-    const dy = p.y - state.travelerY;
-    const d2 = dx * dx + dy * dy;
-    if (d2 < bestD2) {
-      bestD2 = d2;
-      nearest = p;
-    }
-  }
-  nearest.x = state.travelerX + (Math.random() < 0.5 ? -1 : 1) * 38;
-  nearest.y = state.travelerY - 30;
-  nearest.baseY = nearest.y;
 }
 
 function resetTimedPowerUps(state: GameState): void {
@@ -993,7 +950,6 @@ function resetTimedPowerUps(state: GameState): void {
   state.doublePointsActive = false;
   state.slowMotionActive = false;
   state.findBoostActive = false;
-  state.pipePointsActive = false;
 }
 
 function activatePowerUp(state: GameState, type: PowerUpType): void {
@@ -1016,22 +972,12 @@ function activatePowerUp(state: GameState, type: PowerUpType): void {
       break;
     case 'findBoost':
       state.findBoostActive = true;
-      moveNearestPickupTowardTraveler(state);
-      break;
-    case 'pipePoints':
-      state.pipePointsActive = true;
       break;
     case 'healthBoost':
       restoreHealth(state);
       break;
     case 'hazardClear':
       clearHazards(state);
-      break;
-    case 'clearScreen':
-      clearScreen(state);
-      break;
-    case 'killHazards':
-      killRandomHazard(state);
       break;
   }
 
@@ -1072,10 +1018,10 @@ function updatePowerUpPickups(state: GameState, dt: number): void {
 
     if (state.findBoostActive) {
       const dx = state.travelerX - pickup.x;
-      const dy = (state.travelerY - 24) - pickup.y;
+      const dy = (state.travelerY + 8) - pickup.y;
       const d = Math.hypot(dx, dy);
       if (d > 0.001) {
-        const pull = Math.min(150 * dt, d);
+        const pull = Math.min(280 * dt, d);
         pickup.x += (dx / d) * pull;
         pickup.y += (dy / d) * pull;
         pickup.baseY = pickup.y;
@@ -1402,12 +1348,7 @@ function updatePlaying(state: GameState, dt: number): void {
     if (!removeHazard && !h.blocked) {
       const dx = Math.abs(h.x - state.travelerX);
       if (dx < 22 && h.y >= state.travelerY - 8 && h.y <= state.travelerY + 38) {
-        if (state.pipePointsActive) {
-          const converted = scoreWithModifiers(state, h.type === 'hail' ? 20 : h.type === 'snow' ? 12 : 8);
-          state.score += converted;
-          spawnScorePopup(state, h.x, h.y - 8, converted, Math.max(1, state.combo));
-          state.audioEvents.push({ kind: 'block', hazardType: h.type });
-        } else if (!state.shieldActive && state.hitCooldown <= 0) {
+        if (!state.shieldActive && state.hitCooldown <= 0) {
           let damage = 1;
           if (h.type === 'hail') damage = 2;
           const willDie = state.hp - damage <= 0;
