@@ -1927,7 +1927,7 @@ function drawPowerUpEffects(s: GameState): void {
     const size = sz(W / 70, 10, 14);
     const yBob = Math.sin(s.elapsed * 6) * 6;
     const shieldY = s.travelerY - size * 1.9 + yBob;
-    const color = s.shieldInvulnerabilityTimer > 0 ? '#c0c0c0' : COLORS.cyan;
+    const color = COLORS.cyan;
     renderer.drawText(ctx, label, fnt(size, 700), size * 1.3, s.travelerX, shieldY, {
       color: color,
       shadowColor: color,
@@ -2265,6 +2265,7 @@ function drawPowerUpCommandLine(s: GameState, size: number, y: number, pad: numb
     .sort((a, b) => b[1] - a[1]);
   if (entries.length === 0) return;
 
+  const isPortrait = s.H > s.W;
   const prompt = '$ '; // command-line prompt marker
   const labels = entries.map(([type, timer]) => ({
     type,
@@ -2277,10 +2278,12 @@ function drawPowerUpCommandLine(s: GameState, size: number, y: number, pad: numb
     text: `[${it.raw.padEnd(maxLabelChars, ' ')}]`,
   }));
 
-  const availableW = Math.max(0, W - pad * 2);
+  // Adjust available width based on screen orientation
+  const adjustedPad = isPortrait ? Math.max(4, pad - 6) : pad;
+  const availableW = Math.max(0, W - adjustedPad * 2);
 
-  const maxFontSize = Math.max(9, size);
-  const minFontSize = 7;
+  const maxFontSize = Math.max(isPortrait ? 8 : 9, size - 1);
+  const minFontSize = isPortrait ? 6 : 7;
   type CmdLayout = {
     fontSize: number;
     cmdFont: string;
@@ -2338,7 +2341,7 @@ function drawPowerUpCommandLine(s: GameState, size: number, y: number, pad: numb
 
   const { cmdFont, cmdLineH, gap, promptW, tokenWidths, visibleCount, usedW } = bestLayout;
 
-  const leftX = Math.max(pad, Math.round((W - usedW) / 2));
+  const leftX = Math.max(adjustedPad, Math.round((W - usedW) / 2));
   const lineTop = y - 4;
   const boxPad = 6;
   ctx.save();

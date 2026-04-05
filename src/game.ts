@@ -614,7 +614,7 @@ function maintainClouds(state: GameState): void {
   const { W, difficultyLevel: level } = state;
   const MAX_CLOUDS = 8; // Hard cap on clouds
   const target = Math.min(MAX_CLOUDS, 3 + Math.floor(level / 2));
-  const purpleRatio = level >= 10 ? Math.min(0.20, (level - 10) * 0.01) : 0;
+  const purpleRatio = level >= 8 ? Math.min(0.20, (level - 6) * 0.01) : 0;
 
   // --- Profiling ---
   const maintainStart = (typeof performance !== 'undefined' && performance.now) ? performance.now() : Date.now();
@@ -1298,8 +1298,8 @@ function updatePlaying(state: GameState, dt: number): void {
     state.travelerVY = 0;
   }
 
-  // Difficulty ramp every 10s
-  const newLevel = Math.floor(state.elapsed / 10);
+  // Difficulty ramp every 5s
+  const newLevel = Math.floor(state.elapsed / 5);
   if (newLevel > state.difficultyLevel) {
     state.difficultyLevel = newLevel;
     state.spawnInterval = Math.max(0.22, 1.6 - newLevel * 0.13);
@@ -1476,13 +1476,11 @@ function updatePlaying(state: GameState, dt: number): void {
           let damage = 1;
           if (h.type === 'hail') damage = 2;
           
-          const shieldWasActive = state.shieldActive && !state.invincibilityActive;
-          if (shieldWasActive) {
-            damage = 0;
-            state.shieldInvulnerabilityTimer = 1.0;
+          // If shield is active, break it but still take damage
+          if (state.shieldActive && !state.invincibilityActive) {
+            state.shieldActive = false;
             state.powerUpText = 'SHIELD BROKEN!';
             state.powerUpTextTimer = Math.max(state.powerUpTextTimer, 1.5);
-            state.shieldActive = false; // Shield breaks after taking one hit
           }
           
           const willDie = state.hp - damage <= 0;
