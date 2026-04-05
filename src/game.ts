@@ -457,6 +457,14 @@ function computeUmbrellaW(W: number): number {
   return Math.max(80, Math.min(220, W * 0.18));
 }
 
+function computeUmbrellaHalfWidth(state: Pick<GameState, 'W' | 'H' | 'umbrellaW' | 'umbrellaArtWidth'>): number {
+  const renderedWidth = state.umbrellaArtWidth > 0
+    ? state.umbrellaArtWidth
+    : state.umbrellaW * (state.H > state.W ? 2.2 : 1.85);
+  const safeWidth = Math.min(Math.max(state.umbrellaW, renderedWidth), Math.max(48, state.W - 12));
+  return safeWidth / 2;
+}
+
 function computeUmbrellaLineH(W: number): number {
   return Math.round(Math.max(7, Math.min(11, W / 100)) * 1.15);
 }
@@ -1381,8 +1389,11 @@ function updatePlaying(state: GameState, dt: number): void {
   const handleAnchorOffset = umbrellaLineH * (UMBRELLA_CANOPY_LINES - 1 + UMBRELLA_HANDLE_LINES) + UMBRELLA_POINTER_Y_TRIM;
   state.umbrellaX += (state.pointerX - state.umbrellaX) * Math.min(1, lerpSpeed * dt);
   state.umbrellaY += ((state.pointerY - handleAnchorOffset) - state.umbrellaY) * Math.min(1, lerpSpeed * dt);
-  const hw = state.umbrellaW / 2;
-  state.umbrellaX = Math.max(hw + 4, Math.min(state.W - hw - 4, state.umbrellaX));
+  const halfVisibleUmbrellaW = computeUmbrellaHalfWidth(state);
+  const sidePad = state.H > state.W ? 8 : 6;
+  const minX = halfVisibleUmbrellaW + sidePad;
+  const maxX = Math.max(minX, state.W - halfVisibleUmbrellaW - sidePad);
+  state.umbrellaX = Math.max(minX, Math.min(maxX, state.umbrellaX));
   const umbrellaBounds = computeUmbrellaYBounds(state);
   state.umbrellaY = Math.max(umbrellaBounds.minY, Math.min(umbrellaBounds.maxY, state.umbrellaY));
   

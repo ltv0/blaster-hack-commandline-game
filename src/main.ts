@@ -2048,7 +2048,8 @@ const UMBRELLA_FOOT = ['A', 'U', '      LV   ET', '     RC=HP'];
 
 function drawUmbrella(s: GameState): void {
   const { umbrellaX: ux, umbrellaY: uy } = s;
-  const size  = sz(W / 100, 7, 11);
+  const isPortrait = H > W;
+  const size  = sz(W / (isPortrait ? 118 : 100), isPortrait ? 6 : 7, 11);
   const f     = fnt(size, 700);
   const lineH = Math.round(size * 1.15);
 
