@@ -1645,8 +1645,9 @@ function drawGameOver(s: GameState): void {
   const cx   = W / 2;
   const size = sz(W / 45, 12, 18);
   const lh   = size + 6;
-  const boxW = Math.min(460, W - 40);
-  const boxH = 210;
+  // Extend the process killed box for more space
+  const boxW = Math.min(600, W - 20);
+  const boxH = 300;
   const boxX = cx - boxW / 2;
   const boxY = H / 2 - boxH / 2;
   ctx.fillStyle = 'rgba(6,12,20,0.92)'; ctx.fillRect(boxX, boxY, boxW, boxH);
@@ -1655,13 +1656,20 @@ function drawGameOver(s: GameState): void {
   renderer.drawHRule(ctx, '\u2550', fnt(size - 2), lh, boxX + 14, boxY + 60, boxW - 28, { color: COLORS.dimGreen, alpha: 0.6 });
   renderer.drawText(ctx, `FINAL SCORE: ${s.score}`, fnt(size, 700), lh, cx, boxY + 76, { color: COLORS.amber, shadowColor: COLORS.amber, shadowBlur: 10, align: 'center' });
   renderer.drawText(ctx, `SURVIVED: ${Math.floor(s.elapsed)}s   LEVEL REACHED: ${s.difficultyLevel + 1}`, fnt(size - 1), lh, cx, boxY + 104, { color: COLORS.dim, align: 'center' });
-  if (s.combo > 1) renderer.drawText(ctx, `BEST COMBO: \xd7${s.combo}`, fnt(size - 1), lh, cx, boxY + 126, { color: COLORS.cyan, align: 'center' });
-  renderer.drawHRule(ctx, '\u2550', fnt(size - 2), lh, boxX + 14, boxY + 154, boxW - 28, { color: COLORS.dimGreen, alpha: 0.6 });
-  if (Math.floor(Date.now() / 500) % 2 === 0) {
-    // Center the prompt between the green line and the SURVIVED line
+  let comboY = boxY + 126;
+  let promptY;
+  if (s.bestCombo > 1) {
+    renderer.drawText(ctx, `BEST COMBO: \xd7${s.bestCombo}`, fnt(size - 1), lh, cx, comboY, { color: COLORS.cyan, align: 'center' });
+    // Move prompt lower if combo is present
+    promptY = comboY + lh + 30; // Increased offset for lower position
+  } else {
+    // Center the prompt between the green line and the SURVIVED line, but a bit lower
     const survivedY = boxY + 104;
     const greenLineY = boxY + 154;
-    const promptY = survivedY + (greenLineY - survivedY) / 2;
+    promptY = survivedY + (greenLineY - survivedY) * 0.7; // Move lower
+  }
+  renderer.drawHRule(ctx, '\u2550', fnt(size - 2), lh, boxX + 14, boxY + 154, boxW - 28, { color: COLORS.dimGreen, alpha: 0.6 });
+  if (Math.floor(Date.now() / 500) % 2 === 0) {
     renderer.drawText(ctx, '> Press R / ENTER / tap to restart', fnt(size - 1, 700), lh, cx, promptY, { color: COLORS.green, shadowColor: COLORS.green, shadowBlur: 8, align: 'center' });
   }
 }
