@@ -1726,11 +1726,39 @@ function drawPowerUpEffects(s: GameState): void {
     const size = sz(W / 60, 10, 16);
     const alpha = Math.max(0.35, Math.min(1, s.powerUpTextTimer));
     const color = active ? powerUpColor(active) : COLORS.green;
-    renderer.drawText(ctx, label, fnt(size, 700), size * 1.25, W / 2, H * 0.16, {
+    const centerY = H * 0.16;
+    
+    // Measure text to create appropriately sized background box
+    const textWidth = renderer.measureWidth(label, fnt(size, 800));
+    const boxPadding = size * 0.6;
+    const boxWidth = textWidth + boxPadding * 2;
+    const boxHeight = size * 2;
+    const boxX = W / 2 - boxWidth / 2;
+    const boxY = centerY - boxHeight / 2;
+    
+    // Draw glowing background box with shadow/blur effect
+    ctx.save();
+    ctx.globalAlpha = alpha * 0.15;
+    ctx.fillStyle = color;
+    ctx.shadowColor = color;
+    ctx.shadowBlur = 32;
+    ctx.shadowOffsetX = 0;
+    ctx.shadowOffsetY = 0;
+    ctx.fillRect(boxX, boxY, boxWidth, boxHeight);
+    
+    // Draw border glow
+    ctx.globalAlpha = alpha * 0.4;
+    ctx.strokeStyle = color;
+    ctx.lineWidth = 2;
+    ctx.strokeRect(boxX, boxY, boxWidth, boxHeight);
+    ctx.restore();
+    
+    renderer.drawText(ctx, label, fnt(size, 700), size * 1.25, W / 2, centerY + size * 0.1, {
       color,
       shadowColor: color,
       shadowBlur: 16,
       align: 'center',
+      verticalAlign: 'middle',
       alpha,
     });
   }
@@ -1950,7 +1978,7 @@ function drawHUD(s: GameState): void {
   const fb   = fnt(size, 700);
   const f    = fnt(size);
   const pad  = 14;
-  const barH = size + 20;
+  const barH = size + 42;
   const textY = Math.round((barH - size) / 2);
 
   ctx.fillStyle = 'rgba(6,12,20,0.9)';
