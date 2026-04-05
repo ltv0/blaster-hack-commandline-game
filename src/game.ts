@@ -177,6 +177,7 @@ export interface GameState {
   scoreTimer: number;
   combo: number;
   comboTimer: number;
+  bestCombo: number;
 
   // health
   hp: number;
@@ -329,6 +330,7 @@ export function createInitialState(W: number, H: number): GameState {
     scoreTimer: 0,
     combo: 0,
     comboTimer: 0,
+    bestCombo: 0,
 
     hp: 5,
     maxHp: 5,
@@ -1109,6 +1111,7 @@ function updateParticles(state: GameState, dt: number): void {
       // Particle hit the umbrella - increment score/combo
       state.combo++;
       state.comboTimer = 0;
+      if (state.combo > state.bestCombo) state.bestCombo = state.combo;
       const pts = (p.type === 'hail' ? 15 : p.type === 'snow' ? 8 : 5) * Math.max(1, state.combo);
       state.score += pts;
       const popupX = p.x + (Math.random() - 0.5) * 36;
