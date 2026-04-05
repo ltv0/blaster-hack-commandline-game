@@ -722,100 +722,90 @@ function spawnCloudHitBurst(
 }
 
 function hazardIntersectsUmbrella(
+  state: GameState,
   prevX: number,
   prevY: number,
   x: number,
   y: number,
-  left: number,
-  top: number,
-  right: number,
-  bottom: number
 ): boolean {
-  const segmentLeft = Math.min(prevX, x);
-  const segmentRight = Math.max(prevX, x);
-  const segmentTop = Math.min(prevY, y);
-  const segmentBottom = Math.max(prevY, y);
-  if (segmentRight < left || segmentLeft > right || segmentBottom < top || segmentTop > bottom) return false;
+  if (pointHitsUmbrella(state, x, y) || pointHitsUmbrella(state, prevX, prevY)) return true;
 
-  if (x >= left && x <= right && y >= top && y <= bottom) return true;
-  if (prevX >= left && prevX <= right && prevY >= top && prevY <= bottom) return true;
-
-  const intersects = (
-    ax: number, ay: number, bx: number, by: number,
-    cx: number, cy: number, dx: number, dy: number
-  ): boolean => {
-    const cross = (px: number, py: number, qx: number, qy: number, rx: number, ry: number): number =>
-      (qx - px) * (ry - py) - (qy - py) * (rx - px);
-    const onOppositeSides = (
-      p1: number, p2: number,
-      p3: number, p4: number
-    ): boolean => (p1 === 0 || p2 === 0 || (p1 > 0) !== (p2 > 0)) && (p3 === 0 || p4 === 0 || (p3 > 0) !== (p4 > 0));
-
-    const d1 = cross(ax, ay, bx, by, cx, cy);
-    const d2 = cross(ax, ay, bx, by, dx, dy);
-    const d3 = cross(cx, cy, dx, dy, ax, ay);
-    const d4 = cross(cx, cy, dx, dy, bx, by);
-    return onOppositeSides(d1, d2, d3, d4);
-  };
-
-  return (
-    intersects(prevX, prevY, x, y, left, top, right, top) ||
-    intersects(prevX, prevY, x, y, right, top, right, bottom) ||
-    intersects(prevX, prevY, x, y, left, bottom, right, bottom) ||
-    intersects(prevX, prevY, x, y, left, top, left, bottom)
-  );
+  const dx = x - prevX;
+  const dy = y - prevY;
+  const dist = Math.hypot(dx, dy);
+  const sampleStep = Math.max(3, computeUmbrellaLineH(state.W) * 0.28);
+  const steps = Math.max(2, Math.ceil(dist / sampleStep));
+  for (let i = 1; i <= steps; i++) {
+    const t = i / steps;
+    const sx = prevX + dx * t;
+    const sy = prevY + dy * t;
+    if (pointHitsUmbrella(state, sx, sy)) return true;
+  }
+  return false;
 }
 
 function computeUmbrellaImpactPoint(
+  state: GameState,
   prevX: number,
   prevY: number,
   x: number,
   y: number,
-  left: number,
-  top: number,
-  right: number,
-  bottom: number,
 ): { x: number; y: number } {
-  const hits: Array<{ t: number; x: number; y: number }> = [];
+  const dx = x - prevX;
+  const dy = y - prevY;
+  const dist = Math.hypot(dx, dy);
+  const sampleStep = Math.max(2, computeUmbrellaLineH(state.W) * 0.2);
+  const steps = Math.max(3, Math.ceil(dist / sampleStep));
+  for (let i = 0; i <= steps; i++) {
+    const t = i / steps;
+    const sx = prevX + dx * t;
+    const sy = prevY + dy * t;
+    if (pointHitsUmbrella(state, sx, sy)) return { x: sx, y: sy };
+  }
+  return { x, y };
+}
 
-  if (y !== prevY) {
-    const tTop = (top - prevY) / (y - prevY);
-    const xTop = prevX + (x - prevX) * tTop;
-    if (tTop >= 0 && tTop <= 1 && xTop >= left && xTop <= right) {
-      hits.push({ t: tTop, x: xTop, y: top });
-    }
+function umbrellaHitGeometry(state: GameState): {
+  cx: number;
+  halfW: number;
+  canopyTop: number;
+  canopyBottom: number;
+  handleBottom: number;
+  sidePad: number;
+  handlePad: number;
+} {
+  const lineH = state.umbrellaArtLineH > 0 ? state.umbrellaArtLineH : computeUmbrellaLineH(state.W);
+  const width = state.umbrellaArtWidth > 0 ? state.umbrellaArtWidth : state.umbrellaW;
+  const startX = Number.isFinite(state.umbrellaArtStartX) ? state.umbrellaArtStartX : state.umbrellaX - width / 2;
+  const startY = Number.isFinite(state.umbrellaArtStartY) ? state.umbrellaArtStartY : state.umbrellaY - lineH;
 
-    const tBottom = (bottom - prevY) / (y - prevY);
-    const xBottom = prevX + (x - prevX) * tBottom;
-    if (tBottom >= 0 && tBottom <= 1 && xBottom >= left && xBottom <= right) {
-      hits.push({ t: tBottom, x: xBottom, y: bottom });
-    }
+  const cx = startX + width * 0.5;
+  const halfW = Math.max(18, width * 0.5);
+  const canopyTop = startY + lineH * 0.35;
+  const canopyBottom = startY + UMBRELLA_CANOPY_LINES * lineH;
+  const handleBottom = canopyBottom + UMBRELLA_HANDLE_LINES * lineH;
+  const sidePad = Math.max(2, Math.min(8, state.W * 0.006));
+  const handlePad = Math.max(3, lineH * 0.26);
+
+  return { cx, halfW, canopyTop, canopyBottom, handleBottom, sidePad, handlePad };
+}
+
+function pointHitsUmbrella(state: GameState, x: number, y: number): boolean {
+  const g = umbrellaHitGeometry(state);
+
+  if (y >= g.canopyTop && y <= g.canopyBottom) {
+    const t = (y - g.canopyTop) / Math.max(1, g.canopyBottom - g.canopyTop);
+    // Tapered canopy: narrow near peak, full width at rim.
+    const widthT = 0.22 + 0.78 * t;
+    const halfAtY = g.halfW * widthT + g.sidePad;
+    if (Math.abs(x - g.cx) <= halfAtY) return true;
   }
 
-  if (x !== prevX) {
-    const tLeft = (left - prevX) / (x - prevX);
-    const yLeft = prevY + (y - prevY) * tLeft;
-    if (tLeft >= 0 && tLeft <= 1 && yLeft >= top && yLeft <= bottom) {
-      hits.push({ t: tLeft, x: left, y: yLeft });
-    }
-
-    const tRight = (right - prevX) / (x - prevX);
-    const yRight = prevY + (y - prevY) * tRight;
-    if (tRight >= 0 && tRight <= 1 && yRight >= top && yRight <= bottom) {
-      hits.push({ t: tRight, x: right, y: yRight });
-    }
+  if (y > g.canopyBottom && y <= g.handleBottom) {
+    if (Math.abs(x - g.cx) <= g.handlePad) return true;
   }
 
-  if (hits.length > 0) {
-    hits.sort((a, b) => a.t - b.t);
-    return { x: hits[0].x, y: hits[0].y };
-  }
-
-  // Fallback to nearest in-bounds point so a splash is always visible.
-  return {
-    x: Math.max(left, Math.min(right, x)),
-    y: Math.max(top, Math.min(bottom, y)),
-  };
+  return false;
 }
 
 function spawnScorePopup(
@@ -1298,13 +1288,9 @@ function updatePlaying(state: GameState, dt: number): void {
 
     // Umbrella collision - no score/combo on direct hit, particles handle scoring
     if (!h.blocked) {
-      const ux0 = state.umbrellaX - state.umbrellaW / 2;
-      const ux1 = state.umbrellaX + state.umbrellaW / 2;
-      const uyTop = state.umbrellaY;
-      const uyBot = state.umbrellaY + state.umbrellaH + 12;
-      if (hazardIntersectsUmbrella(h.prevX, h.prevY, h.x, h.y, ux0, uyTop, ux1, uyBot)) {
+      if (hazardIntersectsUmbrella(state, h.prevX, h.prevY, h.x, h.y)) {
         h.blocked = true;
-        const impact = computeUmbrellaImpactPoint(h.prevX, h.prevY, h.x, h.y, ux0, uyTop, ux1, uyBot);
+        const impact = computeUmbrellaImpactPoint(state, h.prevX, h.prevY, h.x, h.y);
 
         // Always spawn splash particles regardless of hazard type
         const umbrellaImpactScale = h.type === 'snow' ? 1.7 : h.type === 'hail' ? 1.3 : 1.35;
@@ -1399,11 +1385,7 @@ function updateParticles(state: GameState, dt: number): void {
     p.life -= dt / p.maxLife;
     
     // Check if particle hit the umbrella
-    const ux0 = state.umbrellaX - state.umbrellaW / 2;
-    const ux1 = state.umbrellaX + state.umbrellaW / 2;
-    const uyTop = state.umbrellaY;
-    const uyBot = state.umbrellaY + state.umbrellaH + 12;
-    if (p.x >= ux0 && p.x <= ux1 && p.y >= uyTop && p.y <= uyBot) {
+    if (pointHitsUmbrella(state, p.x, p.y)) {
       // Particle hit the umbrella - increment score/combo
       state.combo++;
       state.comboTimer = 0;
