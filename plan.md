@@ -185,14 +185,17 @@ Set-ExecutionPolicy -Scope CurrentUser RemoteSigned
 
 #### Medium Priority
 - [X] Power-up system 
+- [X] Power-up system 
 - [ ] Hazard variants (acid rain, thunder, blizzards? Maybe add some random gameplay differences per each cloud.)
 - [ ] Milestone rewards (idk something for progression)
 - [X] Sound effects
 - [X] No Background music
 - [ ] Screen shake
 - [X] Particle variety (we actually have this partially implemented already.)
+- [X] Particle variety (we actually have this partially implemented already.)
 
 #### Low Priority
+- [X] Performance optimization (idk it sucks to run on my pc)
 - [X] Performance optimization (idk it sucks to run on my pc)
 - [ ] Mobile touch improvements
 - [ ] Settings menu

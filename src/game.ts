@@ -1,6 +1,65 @@
 // --- Performance caps ---
 const MAX_HAZARDS = 120;
 const MAX_PARTICLES = 180;
+const HAZARD_POOL_MAX = MAX_HAZARDS * 3;
+const PARTICLE_POOL_MAX = MAX_PARTICLES * 4;
+
+const hazardPool: Hazard[] = [];
+const particlePool: Particle[] = [];
+
+function acquireHazard(id: number): Hazard {
+  const pooled = hazardPool.pop();
+  if (pooled) {
+    pooled.id = id;
+    pooled.blocked = false;
+    return pooled;
+  }
+  return {
+    id,
+    x: 0,
+    y: 0,
+    prevX: 0,
+    prevY: 0,
+    vx: 0,
+    vy: 0,
+    type: 'rain',
+    glyph: '|',
+    blocked: false,
+    size: 1,
+  };
+}
+
+function releaseHazard(hazard: Hazard): void {
+  if (hazardPool.length >= HAZARD_POOL_MAX) return;
+  hazardPool.push(hazard);
+}
+
+function acquireParticle(id: number): Particle {
+  const pooled = particlePool.pop();
+  if (pooled) {
+    pooled.id = id;
+    pooled.fromCloudHit = undefined;
+    return pooled;
+  }
+  return {
+    id,
+    x: 0,
+    y: 0,
+    vx: 0,
+    vy: 0,
+    life: 1,
+    maxLife: 1,
+    glyph: '.',
+    color: COLORS.splash,
+    type: 'rain',
+    sizeScale: 1,
+  };
+}
+
+function releaseParticle(particle: Particle): void {
+  if (particlePool.length >= PARTICLE_POOL_MAX) return;
+  particlePool.push(particle);
+}
 // ─── Types ───────────────────────────────────────────────────────────────────
 
 export type GamePhase = 'boot' | 'playing' | 'dead';
@@ -590,7 +649,11 @@ function spawnHazardFromCloud(state: GameState, cloud: Cloud): void {
   if (!Array.isArray(state.hazards) || !Number.isInteger(state.hazards.length) || state.hazards.length < 0 || state.hazards.length > MAX_HAZARDS * 4) {
     state.hazards = [];
   } else if (state.hazards.length >= MAX_HAZARDS) {
-    state.hazards.splice(0, state.hazards.length - (MAX_HAZARDS - 1));
+    const overflow = state.hazards.length - (MAX_HAZARDS - 1);
+    for (let i = 0; i < overflow; i++) {
+      releaseHazard(state.hazards[i]!);
+    }
+    state.hazards.splice(0, overflow);
   }
 
   const { difficultyLevel: level, elapsed } = state;
@@ -624,22 +687,26 @@ function spawnHazardFromCloud(state: GameState, cloud: Cloud): void {
     ? 0.9 + Math.random() * 0.4
     : 0.7 + Math.random() * 0.3;
 
-  state.hazards.push({
-    id: state.hazardIdCounter++,
-    x,
-    y,
-    prevX: x,
-    prevY: y,
-    vx,
-    vy,
-    type: hazardType,
-    glyph,
-    blocked: false,
-    size,
-  });
+  const hazard = acquireHazard(state.hazardIdCounter++);
+  hazard.x = x;
+  hazard.y = y;
+  hazard.prevX = x;
+  hazard.prevY = y;
+  hazard.vx = vx;
+  hazard.vy = vy;
+  hazard.type = hazardType;
+  hazard.glyph = glyph;
+  hazard.blocked = false;
+  hazard.size = size;
+
+  state.hazards.push(hazard);
 
   if (state.hazards.length > MAX_HAZARDS) {
-    state.hazards.splice(0, state.hazards.length - MAX_HAZARDS);
+    const overflow = state.hazards.length - MAX_HAZARDS;
+    for (let i = 0; i < overflow; i++) {
+      releaseHazard(state.hazards[i]!);
+    }
+    state.hazards.splice(0, overflow);
   }
 
   cloud.flashTimer = 0.2;
@@ -683,22 +750,24 @@ function spawnSplash(
   }
   for (let i = 0; i < count; i++) {
     if (state.particles.length >= MAX_PARTICLES) {
-      state.particles.shift();
+      const oldest = state.particles.shift();
+      if (oldest) releaseParticle(oldest);
     }
     const angle = (Math.PI * 2 / count) * i + (Math.random() - 0.5) * 0.9;
     const speed = isHit ? (70 + Math.random() * 110) : (25 + Math.random() * 60);
-    state.particles.push({
-      id: state.particleIdCounter++,
-      x, y,
-      vx: Math.cos(angle) * speed,
-      vy: Math.sin(angle) * speed - (isHit ? 50 : 12),
-      life: 1,
-      maxLife: isHit ? (0.5 + Math.random() * 0.35) : (0.28 + Math.random() * 0.2),
-      glyph: glyphs[Math.floor(Math.random() * glyphs.length)],
-      color,
-      type,
-      sizeScale,
-    });
+    const particle = acquireParticle(state.particleIdCounter++);
+    particle.x = x;
+    particle.y = y;
+    particle.vx = Math.cos(angle) * speed;
+    particle.vy = Math.sin(angle) * speed - (isHit ? 50 : 12);
+    particle.life = 1;
+    particle.maxLife = isHit ? (0.5 + Math.random() * 0.35) : (0.28 + Math.random() * 0.2);
+    particle.glyph = glyphs[Math.floor(Math.random() * glyphs.length)]!;
+    particle.color = color;
+    particle.type = type;
+    particle.sizeScale = sizeScale;
+    particle.fromCloudHit = undefined;
+    state.particles.push(particle);
   }
 }
 
@@ -737,24 +806,24 @@ function spawnCloudHitBurst(
 
   for (let i = 0; i < count; i++) {
     if (state.particles.length >= MAX_PARTICLES) {
-      state.particles.shift();
+      const oldest = state.particles.shift();
+      if (oldest) releaseParticle(oldest);
     }
     const angle = Math.PI * (0.25 + Math.random() * 0.5); // mostly downward fan
     const speed = 35 + Math.random() * 55;
-    state.particles.push({
-      id: state.particleIdCounter++,
-      x,
-      y,
-      vx: Math.cos(angle) * speed,
-      vy: Math.sin(angle) * speed,
-      life: 1,
-      maxLife: 0.18 + Math.random() * 0.15,
-      glyph: glyphs[Math.floor(Math.random() * glyphs.length)],
-      color,
-      type,
-      sizeScale: 0.85,
-      fromCloudHit: true,
-    });
+    const particle = acquireParticle(state.particleIdCounter++);
+    particle.x = x;
+    particle.y = y;
+    particle.vx = Math.cos(angle) * speed;
+    particle.vy = Math.sin(angle) * speed;
+    particle.life = 1;
+    particle.maxLife = 0.18 + Math.random() * 0.15;
+    particle.glyph = glyphs[Math.floor(Math.random() * glyphs.length)]!;
+    particle.color = color;
+    particle.type = type;
+    particle.sizeScale = 0.85;
+    particle.fromCloudHit = true;
+    state.particles.push(particle);
   }
 }
 
@@ -995,6 +1064,9 @@ function chooseRandomPowerUp(): PowerUpType {
 }
 
 function clearHazards(state: GameState): void {
+  for (let i = 0; i < state.hazards.length; i++) {
+    releaseHazard(state.hazards[i]!);
+  }
   state.hazards.length = 0;
   // Validate/repair hazards after length assignment
   if (!Array.isArray(state.hazards) || typeof state.hazards.length !== 'number' || state.hazards.length < 0 || !Number.isFinite(state.hazards.length) || !Number.isSafeInteger(state.hazards.length)) {
@@ -1007,6 +1079,9 @@ function clearHazards(state: GameState): void {
 }
 
 function clearScreen(state: GameState): void {
+  for (let i = 0; i < state.hazards.length; i++) {
+    releaseHazard(state.hazards[i]!);
+  }
   state.hazards.length = 0;
   // Validate/repair hazards after length assignment
   if (!Array.isArray(state.hazards) || typeof state.hazards.length !== 'number' || state.hazards.length < 0 || !Number.isFinite(state.hazards.length) || !Number.isSafeInteger(state.hazards.length)) {
@@ -1491,6 +1566,8 @@ function updatePlaying(state: GameState, dt: number): void {
 
     if (!removeHazard) {
       state.hazards[hazardWriteIndex++] = h;
+    } else {
+      releaseHazard(h);
     }
   }
   // Clamp hazardWriteIndex to a valid integer before assigning
@@ -1567,6 +1644,8 @@ function updateParticles(state: GameState, dt: number): void {
 
     if (!removeParticle) {
       state.particles[particleWriteIndex++] = p;
+    } else {
+      releaseParticle(p);
     }
   }
   state.particles.length = particleWriteIndex;
@@ -1791,6 +1870,9 @@ function startGame(state: GameState): void {
   state.phase = 'playing';
   state.umbrellaVY = 0;
   state._umbrellaActualY = state.umbrellaY;
+  if (typeof window !== 'undefined' && typeof (window as any).initParticleSystem === 'function') {
+    (window as any).initParticleSystem(state);
+  }
 }
 
 function restartGame(state: GameState): void {
@@ -1803,4 +1885,10 @@ function restartGame(state: GameState): void {
   Object.assign(state, fresh);
   state.umbrellaVY = 0;
   state._umbrellaActualY = state.umbrellaY;
+  if (typeof window !== 'undefined' && typeof (window as any).initParticleSystem === 'function') {
+    (window as any).initParticleSystem(state);
+  }
+  if (typeof window !== 'undefined' && typeof (window as any).updateCloudEmitPoints === 'function') {
+    (window as any).updateCloudEmitPoints(state);
+  }
 }
