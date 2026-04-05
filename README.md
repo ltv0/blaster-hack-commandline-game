@@ -16,6 +16,7 @@ Command-line themed browser game where you drag an umbrella to protect a travele
 - Source code reference: https://github.com/rinesh/pretext-breaker/tree/main/src
 - Pretext npm package reference: https://www.npmjs.com/package/@chenglou/pretext
 - Architecture alignment target: `src/main.ts`, `src/game.ts`, and `src/pretext-renderer.ts`.
+- umbrella sprite: https://www.asciiart.eu/art/063c0304bc2d8903 
 
 
 
