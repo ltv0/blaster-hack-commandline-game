@@ -540,19 +540,19 @@ function getCloudFieldBlockedIntervalsForBand(bandTop: number, bandBottom: numbe
     const localX = Math.max(0, Math.min(CANVAS_W - 1, x));
     const occupied = sampleBrightness(localX, localY) >= CLOUD_FIELD_CARVE_BRIGHTNESS;
 
-    if (occupied && run_start < 0) {
-      run_start = x;
+    if (occupied && runStart < 0) {
+      runStart = x;
       continue;
     }
 
-    if (!occupied && run_start >= 0) {
-      out.push({ left: Math.max(0, run_start - pad), right: Math.min(W, x + step * 0.5 + pad) });
-      run_start = -1;
+    if (!occupied && runStart >= 0) {
+      out.push({ left: Math.max(0, runStart - pad), right: Math.min(W, x + step * 0.5 + pad) });
+      runStart = -1;
     }
   }
 
-  if (run_start >= 0) {
-    out.push({ left: Math.max(0, run_start - pad), right: W });
+  if (runStart >= 0) {
+    out.push({ left: Math.max(0, runStart - pad), right: W });
   }
 
   return out;
@@ -1107,11 +1107,12 @@ function drawStars(s: GameState): void {
 
 // Clouds
 const CLOUD_CHARSET = ' .,-:;=+*#%R';
+const CLOUD_DECORATION_CHARS = '.,:+*#@';
 const CLOUD_CHARSETS: Record<ParticleType, string> = {
   rain: CLOUD_CHARSET,
   snow: ' .,-:;=+*#%S',
   hail: ' .,-:;=+*#%H',
-  purpleRain: ' PURPLE PURPLE ',
+  purpleRain: ' .,-:;=+*#%P',
 };
 const CLOUD_EMIT_BRIGHTNESS = 0.22;
 const CLOUD_EMIT_SAMPLE_COLS = 18;
