@@ -270,11 +270,13 @@ export const COLORS = {
   cloudFlash:  '#56d4e0',
 };
 
+const GROUND_Y_RATIO = 0.91;
+
 // ─── Init ─────────────────────────────────────────────────────────────────────
 
 export function createInitialState(W: number, H: number): GameState {
   const travelerSize = Math.max(14, Math.min(22, W / 40));
-  const baseY = Math.round(H * 0.84) - travelerSize * 2.95;
+  const baseY = Math.round(H * GROUND_Y_RATIO) - travelerSize * 2.95;
   return {
     phase: 'boot',
     W, H,
@@ -369,7 +371,7 @@ function computeUmbrellaLineH(W: number): number {
 }
 
 function computeGroundY(state: GameState): number {
-  return Math.round(state.H * 0.84);
+  return Math.round(state.H * GROUND_Y_RATIO);
 }
 
 function computeTravelerBaseY(state: GameState): number {
@@ -405,7 +407,7 @@ export function computeUmbrellaYBounds(state: Pick<GameState, 'W' | 'H' | 'cloud
     cloudCeiling = Math.max(0, state.H * 0.12);
   }
 
-  const groundY = Math.round(state.H * 0.84);
+  const groundY = Math.round(state.H * GROUND_Y_RATIO);
   return {
     // umbrellaY maps to one line below the rendered top (startY = umbrellaY - lineH)
     minY: Math.max(0, cloudCeiling + umbrellaLineH),

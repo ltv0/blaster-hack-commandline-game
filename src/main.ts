@@ -22,6 +22,7 @@ const renderer = new PretextRenderer();
 let dpr = window.devicePixelRatio || 1;
 let W = 0;
 let H = 0;
+const GROUND_Y_RATIO = 0.91;
 
 function resize(): void {
   dpr = window.devicePixelRatio || 1;
@@ -37,7 +38,7 @@ function resize(): void {
     state.H = H;
     state.travelerX = W * 0.38;
     const travelerSize = Math.max(14, Math.min(22, W / 40));
-    const baseY = Math.round(H * 0.84) - travelerSize * 2.95;
+    const baseY = Math.round(H * GROUND_Y_RATIO) - travelerSize * 2.95;
     state.travelerY = baseY;
     state.travelerBaseY = baseY;
     state.umbrellaW = Math.max(80, Math.min(220, W * 0.18));
@@ -292,11 +293,12 @@ function drawAsciiBackground(
   repulsors: BgRepulsor[] = [],
   occluders: BgOccluder[] = [],
   circleObstacles: BgCircleObstacle[] = [],
+  clipToGround = true,
 ): void {
   if (bgCells.length === 0 || bgCols === 0) return;
   ctx.save();
   const scrolledY = scrollY % bgCellH;
-  const groundY = H * 0.84;
+  const maxY = clipToGround ? H * GROUND_Y_RATIO : H;
   const hoverRadius = Math.max(95, Math.min(230, W * 0.2));
   const hoverPush = 8.5;
   const hoverBoost = 0.42 + 0.14 * Math.sin(bgHoverPulse);
@@ -305,7 +307,7 @@ function drawAsciiBackground(
 
   for (let row = 0; row < bgRows; row++) {
     const y = row * bgCellH - scrolledY;
-    if (y > groundY + bgCellH) continue;
+    if (y > maxY + bgCellH) continue;
 
     const bandTop    = y;
     const bandBottom = y + bgCellH;
@@ -534,7 +536,7 @@ function updateUmbrellaPhysics(s: GameState, dt: number): void {
   let pressureForce = 0;
 
   for (const cloud of s.clouds) {
-    const size = Math.max(9, Math.min(14, s.W / 75));
+    const size = Math.max(9, Math.min(14, s.W / 75)) * WEATHER_FONT_SCALE;
     const lineH = Math.round(size * 1.35);
 
     const hudH = Math.max(10, Math.min(14, s.W / 70)) + 20;
@@ -624,33 +626,49 @@ function drawBoot(s: GameState): void {
   const lh = sz(H / 24, 20, 28);
   const size = sz(W / 60, 11, 15);
   const startY = H * 0.18;
-  const indent = cx - sz(W * 0.28, 120, 230);
+  const panelW = Math.min(640, W - 48);
+  const panelX = cx - panelW / 2;
+  const panelY = startY - lh * 2.8;
+  const headerH = lh * 1.4;
+  const maxVisibleLines = 5;
+  const visibleLineCount = Math.max(1, Math.min(s.bootLines.length, maxVisibleLines));
+  const panelH = headerH + lh * (visibleLineCount + 0.8);
 
-  drawAsciiBackground(0, 0.24, COLORS.brightGreen);
+  drawAsciiBackground(0, 0.24, COLORS.brightGreen, [], [], [], false);
   drawScanlines(0.04);
 
-  renderer.drawText(ctx, '[ WEATHER REPORT ]', fnt(size + 5, 700), lh, cx, startY - lh * 2.2, {
-    color: COLORS.green, shadowColor: COLORS.green, shadowBlur: 20, align: 'center',
-  });
-  renderer.drawHRule(ctx, '\u2550', fnt(size - 1), lh, indent, startY - lh * 0.7,
-    sz(W * 0.56, 240, 460), { color: COLORS.dimGreen, alpha: 0.7 });
+  ctx.save();
+  ctx.fillStyle = 'rgba(2, 6, 10, 0.82)';
+  ctx.fillRect(panelX, panelY, panelW, panelH);
+  ctx.strokeStyle = 'rgba(108, 242, 128, 0.34)';
+  ctx.lineWidth = 2;
+  ctx.strokeRect(panelX + 1, panelY + 1, panelW - 2, panelH - 2);
+  ctx.fillStyle = 'rgba(108, 242, 128, 0.10)';
+  ctx.fillRect(panelX, panelY, panelW, headerH);
+  ctx.restore();
 
-  for (let i = 0; i < s.bootLines.length; i++) {
-    const line = s.bootLines[i];
+  renderer.drawText(ctx, 'TERMINAL // WEATHER REPORT', fnt(size + 3, 700), lh * 1.4, panelX + 18, panelY + lh * 0.55, {
+    color: COLORS.green, shadowColor: COLORS.green, shadowBlur: 12,
+  });
+
+  const lines = s.bootLines.slice(-visibleLineCount);
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
     const isWarn   = line.startsWith('\u26a0');
     const isPrompt = line.startsWith('>');
-    const isLast   = i === s.bootLines.length - 1;
+    const isLast   = i === lines.length - 1;
     const color = isPrompt ? COLORS.amber : isWarn ? COLORS.red : isLast ? COLORS.white : COLORS.dimGreen;
     const f = (isPrompt || isWarn) ? fnt(size, 700) : fnt(size);
+    const yPos = panelY + headerH + lh * (0.6 + i);
     if (isPrompt && s.bootDone) {
       const display = line.replace(/ _$/, '');
-      renderer.drawText(ctx, display, f, lh, indent, startY + i * lh, { color });
+      renderer.drawText(ctx, display, f, lh, panelX + 18, yPos, { color });
       if (s.promptBlink) {
         const tw = renderer.measureWidth(display + ' ', f);
-        renderer.drawText(ctx, '\u258c', f, lh, indent + tw, startY + i * lh, { color: COLORS.amber });
+        renderer.drawText(ctx, '\u258c', f, lh, panelX + 18 + tw, yPos, { color: COLORS.amber });
       }
     } else {
-      renderer.drawText(ctx, line, f, lh, indent, startY + i * lh, { color });
+      renderer.drawText(ctx, line, f, lh, panelX + 18, yPos, { color });
     }
   }
   renderer.drawText(ctx, 'BLASTER HACK COMMANDLINE GAME  //  v1.0', fnt(size - 3), lh,
@@ -708,6 +726,7 @@ const CLOUD_EMIT_BRIGHTNESS = 0.22;
 const CLOUD_EMIT_SAMPLE_COLS = 18;
 const CLOUD_EMIT_SAMPLE_ROWS = 8;
 const CLOUD_EMIT_MAX_POINTS = 72;
+const WEATHER_FONT_SCALE = 1.28;
 function brightnessToCharsetIndex(brightness: number): number {
   const adjusted = Math.sqrt(brightness);
   return Math.min(Math.max(Math.floor(adjusted * (CLOUD_CHARSET.length - 1)), 0), CLOUD_CHARSET.length - 1);
@@ -990,7 +1009,7 @@ function updateCloudEmitPoints(s: GameState): void {
   if (s.clouds.length === 0 || CANVAS_W <= 0 || CANVAS_H <= 0) return;
 
   const hudH = sz(W / 70, 10, 14) + 20;
-  const cloudSize = sz(W / 75, 9, 14);
+  const cloudSize = sz(W / 75, 9, 14) * WEATHER_FONT_SCALE;
   const lineH = Math.round(cloudSize * 1.35);
   const startY = hudH + 5;
   const sampleH = lineH * 8;
@@ -1121,7 +1140,7 @@ function getCloudLines(c: Cloud, elapsed = 0): string[] {
 }
 function drawClouds(s: GameState): void {
   const hudH  = sz(W / 70, 10, 14) + 20;
-  const size  = sz(W / 75, 9, 14);
+  const size  = sz(W / 75, 9, 14) * WEATHER_FONT_SCALE;
   const lineH = Math.round(size * 1.35);
   // Use the same visible font as the sky text so characters line up
   const f = fnt(size, 700);
@@ -1229,7 +1248,7 @@ function drawClouds(s: GameState): void {
 }
 
 // Ground
-function travelerGroundY(s: GameState): number { return Math.round(s.H * 0.84); }
+function travelerGroundY(s: GameState): number { return Math.round(s.H * GROUND_Y_RATIO); }
 function drawGround(s: GameState): void {
   const groundY = travelerGroundY(s);
   const size = sz(W / 60, 9, 14);
@@ -1245,15 +1264,20 @@ function drawGround(s: GameState): void {
   ctx.fillRect(0, groundY, W, lineH * 2);
 
   const rows = [
-    { pattern: '|grass|ground|', color: COLORS.brightGreen, alpha: 1.0 }, // Brighter color and full alpha
-    { pattern: '|ground|grass|', color: COLORS.brightGreen, alpha: 0.8 },
-    { pattern: '|grass|ground|', color: COLORS.brightGreen, alpha: 0.6 },
-    { pattern: '|ground|grass|', color: COLORS.brightGreen, alpha: 0.4 },
+    { pattern: '|grass|ground|', color: COLORS.brightGreen, alpha: 1.0 },
+    { pattern: '|ground|grass|', color: COLORS.brightGreen, alpha: 0.82 },
+    { pattern: '|grass|ground|', color: COLORS.brightGreen, alpha: 0.68 },
   ];
   const charW = renderer.measureWidth('|', f);
   if (charW <= 0) return;
-  for (let row = 0; row < rows.length; row++) {
-    const { pattern, color, alpha } = rows[row];
+  const totalRows = Math.min(5, Math.ceil((H - groundY) / lineH) + 1);
+  for (let row = 0; row < totalRows; row++) {
+    const base = rows[row % rows.length];
+    const depth = totalRows > 1 ? row / (totalRows - 1) : 0;
+    const fade = 1 - depth * 0.45;
+    const pattern = base.pattern;
+    const color = base.color;
+    const alpha = base.alpha * fade;
     const rowY = groundY + row * lineH + 2;
     if (rowY > H) break;
     const scroll = row % 2 === 0 ? s.groundOffset : -s.groundOffset;
@@ -1343,7 +1367,7 @@ function drawHazards(s: GameState): void {
   const groundY = travelerGroundY(s);
   for (const h of s.hazards) {
     if (h.y > groundY) continue;
-    const base = h.type === 'hail' ? sz(W / 55, 12, 17) : sz(W / 65, 10, 14);
+    const base = (h.type === 'hail' ? sz(W / 55, 12, 17) : sz(W / 65, 10, 14)) * WEATHER_FONT_SCALE;
     const size = Math.round(base * h.size);
     const f = fnt(size, 700);
     const color = h.type === 'rain' ? COLORS.rain : h.type === 'snow' ? COLORS.snow : COLORS.hail;
@@ -1357,7 +1381,7 @@ function drawHazards(s: GameState): void {
 // Particles
 function drawParticles(s: GameState): void {
   for (const p of s.particles) {
-    const baseSize = sz(W / 70, 8, 12);
+    const baseSize = sz(W / 70, 8, 12) * WEATHER_FONT_SCALE;
     const snowBoost = p.type === 'snow' ? 1.6 : 1;
     const size = Math.round(baseSize * snowBoost * (p.sizeScale ?? 1));
     const f = fnt(size);
