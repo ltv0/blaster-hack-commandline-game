@@ -1,3 +1,6 @@
+// --- Performance caps ---
+const MAX_HAZARDS = 120;
+const MAX_PARTICLES = 180;
 // ─── Types ───────────────────────────────────────────────────────────────────
 
 export type GamePhase = 'boot' | 'playing' | 'dead';
@@ -524,13 +527,14 @@ function spawnCloud(state: GameState, x: number, type: 'rain' | 'snow' | 'hail')
 /** Keep 3–6 clouds on screen, scaling with difficulty. Each type is represented. */
 function maintainClouds(state: GameState): void {
   const { W, difficultyLevel: level } = state;
-  const target = Math.min(6, 3 + Math.floor(level / 2));
+  const MAX_CLOUDS = 8; // Hard cap on clouds
+  const target = Math.min(MAX_CLOUDS, 3 + Math.floor(level / 2));
 
   // Count existing types
   const typeCounts = { rain: 0, snow: 0, hail: 0 };
   for (const c of state.clouds) typeCounts[c.type]++;
 
-  while (state.clouds.length < target) {
+  while (state.clouds.length < target && state.clouds.length < MAX_CLOUDS) {
     let type: 'rain' | 'snow' | 'hail';
     if (level < 1) {
       type = 'rain';
@@ -553,10 +557,19 @@ function maintainClouds(state: GameState): void {
     spawnCloud(state, x, type);
     typeCounts[type]++;
   }
+
+  // Remove excess clouds if above cap
+  if (state.clouds.length > MAX_CLOUDS) {
+    state.clouds.splice(0, state.clouds.length - MAX_CLOUDS);
+  }
 }
 
 /** Spawn one hazard from a specific cloud — called per-cloud from updateClouds. */
 function spawnHazardFromCloud(state: GameState, cloud: Cloud): void {
+    // Cap hazards: remove oldest if at max
+    if (state.hazards.length >= MAX_HAZARDS) {
+      state.hazards.shift();
+    }
   const { difficultyLevel: level, elapsed } = state;
 
   // Strict topology mode: hazards may only emit from sampled, visible cloud pixels.
@@ -644,6 +657,9 @@ function spawnSplash(
     }
   }
   for (let i = 0; i < count; i++) {
+    if (state.particles.length >= MAX_PARTICLES) {
+      state.particles.shift();
+    }
     const angle = (Math.PI * 2 / count) * i + (Math.random() - 0.5) * 0.9;
     const speed = isHit ? (70 + Math.random() * 110) : (25 + Math.random() * 60);
     state.particles.push({
@@ -695,6 +711,9 @@ function spawnCloudHitBurst(
       : ['\u00b7', '\'', '/'];
 
   for (let i = 0; i < count; i++) {
+    if (state.particles.length >= MAX_PARTICLES) {
+      state.particles.shift();
+    }
     const angle = Math.PI * (0.25 + Math.random() * 0.5); // mostly downward fan
     const speed = 35 + Math.random() * 55;
     state.particles.push({
@@ -1203,6 +1222,10 @@ function updatePlaying(state: GameState, dt: number): void {
     state.levelUpTimer = 2.5;
     state.levelUpText = `// LEVEL ${newLevel + 1} STORM INTENSIFYING //`;
     state.audioEvents.push({ kind: 'levelup' });
+    // Debug logging for cloud/hazard/particle counts
+    if (typeof console !== 'undefined') {
+      console.log(`Level up to ${newLevel + 1}: clouds=${state.clouds.length}, hazards=${state.hazards.length}, particles=${state.particles.length}`);
+    }
     // Rebuild the particle field and update cloud visuals for the new level
     // Clear and respawn clouds to match new level data
     state.clouds = [];
