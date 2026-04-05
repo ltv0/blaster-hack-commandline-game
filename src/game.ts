@@ -1472,14 +1472,13 @@ function updatePlaying(state: GameState, dt: number): void {
             stripTimedPowerUps(state);
           }
         }
-        if (!state.invincibilityActive && state.hitCooldown <= 0 && state.shieldInvulnerabilityTimer <= 0) {
+        if (!state.invincibilityActive && state.hitCooldown <= 0) {
           let damage = 1;
           if (h.type === 'hail') damage = 2;
 
           if (state.shieldActive) {
             state.shieldActive = false;
             damage = 0;
-            state.shieldInvulnerabilityTimer = 1.0;
             state.powerUpText = 'SHIELD BROKEN!';
             state.powerUpTextTimer = Math.max(state.powerUpTextTimer, 1.5);
           }
