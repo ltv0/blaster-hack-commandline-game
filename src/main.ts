@@ -326,6 +326,7 @@ function drawAsciiBackground(
   repulsors: BgRepulsor[] = [],
   occluders: BgOccluder[] = [],
   circleObstacles: BgCircleObstacle[] = [],
+  carveCloudField = false,
   clipToGround = true,
 ): void {
   if (bgCells.length === 0 || bgCols === 0) return;
@@ -364,6 +365,11 @@ function drawAsciiBackground(
         bandTop, bandBottom, co.hPad, co.vPad,
       );
       if (interval !== null) blocked.push(interval);
+    }
+
+    if (carveCloudField) {
+      const fieldBlocked = getCloudFieldBlockedIntervalsForBand(bandTop, bandBottom);
+      for (let fi = 0; fi < fieldBlocked.length; fi++) blocked.push(fieldBlocked[fi]!);
     }
 
     const mergedBlocked = blocked.length > 1 ? mergeBlockedIntervals(blocked, 0, W) : blocked;
@@ -419,6 +425,13 @@ function drawAsciiBackground(
         objectBoost += t;
       }
 
+      if (carveCloudField) {
+        const cloudWarp = sampleCloudFieldWarpPush(x, y);
+        objectPushX += cloudWarp.dx;
+        objectPushY += cloudWarp.dy;
+        objectBoost += cloudWarp.boost;
+      }
+
       const drawX = x + dirX * push * warp + objectPushX;
       const drawY = y + dirY * push * warp + objectPushY;
 
@@ -443,6 +456,88 @@ function drawAsciiBackground(
     }
   }
   ctx.restore();
+}
+
+const CLOUD_FIELD_CARVE_BRIGHTNESS = 0.05;
+const CLOUD_FIELD_WARP_BRIGHTNESS = 0.02;
+const CLOUD_FIELD_CARVE_PAD = 0.9;
+const CLOUD_FIELD_WARP_PUSH = 7.5;
+const CLOUD_FIELD_WARP_MAX = 12;
+
+function sampleCloudFieldWarpPush(screenX: number, screenY: number): { dx: number; dy: number; boost: number } {
+  if (CANVAS_W <= 0 || CANVAS_H <= 0 || FIELD_COLS <= 0 || FIELD_ROWS <= 0 || !brightnessField || brightnessField.length === 0) {
+    return { dx: 0, dy: 0, boost: 0 };
+  }
+
+  const hudH = sz(W / 70, 10, 14) + 20;
+  const sourceY = hudH + 5;
+  const localY = screenY - sourceY;
+  if (localY < 0 || localY >= CANVAS_H) return { dx: 0, dy: 0, boost: 0 };
+
+  const localX = Math.max(0, Math.min(CANVAS_W - 1, screenX));
+  const center = sampleBrightness(localX, localY);
+  if (center < CLOUD_FIELD_WARP_BRIGHTNESS) return { dx: 0, dy: 0, boost: 0 };
+
+  const delta = Math.max(2, Math.floor(bgCellW * 0.6));
+  const left = sampleBrightness(Math.max(0, localX - delta), localY);
+  const right = sampleBrightness(Math.min(CANVAS_W - 1, localX + delta), localY);
+  const up = sampleBrightness(localX, Math.max(0, localY - delta));
+  const down = sampleBrightness(localX, Math.min(CANVAS_H - 1, localY + delta));
+
+  const gradX = right - left;
+  const gradY = down - up;
+  const gradLen = Math.hypot(gradX, gradY);
+
+  if (gradLen < 0.0001) return { dx: 0, dy: 0, boost: center * 0.25 };
+
+  // Gradient points inward toward denser cloud; invert to push glyphs outward.
+  const nx = -gradX / gradLen;
+  const ny = -gradY / gradLen;
+  const insideBoost = Math.min(1, center / CLOUD_FIELD_CARVE_BRIGHTNESS);
+  const push = Math.min(CLOUD_FIELD_WARP_MAX, CLOUD_FIELD_WARP_PUSH * (0.35 + insideBoost * 0.9));
+
+  return {
+    dx: nx * push,
+    dy: ny * push * 0.7,
+    boost: insideBoost,
+  };
+}
+
+function getCloudFieldBlockedIntervalsForBand(bandTop: number, bandBottom: number): BgInterval[] {
+  if (CANVAS_W <= 0 || CANVAS_H <= 0 || FIELD_COLS <= 0 || FIELD_ROWS <= 0 || !brightnessField || brightnessField.length === 0) {
+    return [];
+  }
+
+  const hudH = sz(W / 70, 10, 14) + 20;
+  const sourceY = hudH + 5;
+  const localY = (bandTop + bandBottom) * 0.5 - sourceY;
+  if (localY < 0 || localY >= CANVAS_H) return [];
+
+  const step = Math.max(2, Math.floor(bgCellW));
+  const pad = Math.max(1, Math.floor(bgCellW * CLOUD_FIELD_CARVE_PAD));
+  const out: BgInterval[] = [];
+  let runStart = -1;
+
+  for (let x = 0; x <= W; x += step) {
+    const localX = Math.max(0, Math.min(CANVAS_W - 1, x));
+    const occupied = sampleBrightness(localX, localY) >= CLOUD_FIELD_CARVE_BRIGHTNESS;
+
+    if (occupied && runStart < 0) {
+      runStart = x;
+      continue;
+    }
+
+    if (!occupied && runStart >= 0) {
+      out.push({ left: Math.max(0, runStart - pad), right: Math.min(W, x + step * 0.5 + pad) });
+      runStart = -1;
+    }
+  }
+
+  if (runStart >= 0) {
+    out.push({ left: Math.max(0, runStart - pad), right: W });
+  }
+
+  return out;
 }
 
 function buildBackgroundRepulsors(s: GameState): BgRepulsor[] {
@@ -558,24 +653,7 @@ function buildBackgroundCircleObstacles(s: GameState): BgCircleObstacle[] {
     vPad: 0,
   });
 
-  // ── Clouds ───────────────────────────────────────────────────────────────
-  // Use the same geometry as drawClouds: hudH+5 for startY, 4 art lines tall.
-  // Bottom-biased ellipse so text wraps in close at top and hugs the base.
-  const cloudFontSize  = sz(W / 75, 9, 14);
-  const cloudLineH     = Math.round(cloudFontSize * 1.35);
-  const cloudHudH      = sz(W / 70, 10, 14) + 20;
-  const cloudStartY    = cloudHudH + 5;
-  const CLOUD_ART_LINES = 4;
-  const cloudArtH      = CLOUD_ART_LINES * cloudLineH;
-  for (let i = 0; i < Math.min(8, s.clouds.length); i++) {
-    const c = s.clouds[i]!;
-    const artW     = c.artW > 0 ? c.artW : Math.max(80, Math.min(220, W * 0.18));
-    const cloudTopY = Math.max(cloudStartY, c.y);
-    // Centre biased 70% toward bottom so upper rows stay open longer
-    const cloudCy  = cloudTopY + cloudArtH * 0.70;
-    const cloudRy  = cloudArtH * 0.30;   // distance from centre to bottom rim
-    out.push({ cx: c.x, cy: cloudCy, rx: artW / 2, ry: cloudRy, hPad: 2, vPad: 1 });
-  }
+  // Clouds are carved directly from the source field in drawAsciiBackground.
 
   return out;
 }
@@ -963,7 +1041,7 @@ function drawGame(s: GameState): void {
   const repulsors = buildBackgroundRepulsors(s);
   const occluders = buildBackgroundOccluders(s);
   const circleObstacles = buildBackgroundCircleObstacles(s);
-  drawAsciiBackground(s.bgStarOffset * 0.3, 0.15, '#8bc98b', repulsors, occluders, circleObstacles);
+  drawAsciiBackground(s.bgStarOffset * 0.3, 0.15, '#8bc98b', repulsors, occluders, circleObstacles, true);
   if (SHOW_CLOUD_SOURCE_FIELD) drawSourceField();
   drawStars(s);
   drawClouds(s);
@@ -983,7 +1061,7 @@ function drawGame(s: GameState): void {
     ctx.save(); ctx.fillStyle = COLORS.red; ctx.globalAlpha = s.deathFlash * 0.35;
     ctx.fillRect(0, 0, W, H); ctx.restore();
   }
-  drawScanlines(0.03);
+  drawScanlines(0.08);
 }
 
 // Stars
@@ -1838,9 +1916,11 @@ function drawUmbrella(s: GameState): void {
   const f     = fnt(size, 700);
   const lineH = Math.round(size * 1.15);
 
-  const comboGlow = s.combo >= 3;
-  const glowColor = comboGlow ? COLORS.comboGold : COLORS.amber;
-  const glowBlur  = comboGlow ? 18 : 10;
+  const comboT = Math.max(0, Math.min(1, s.combo / 10));
+  const glowColor = comboT > 0.65 ? COLORS.comboGold : COLORS.amber;
+  const canopyGlowBlur = Math.round(4 + comboT * 28);
+  const rimGlowBlur = Math.round(2 + comboT * 14);
+  const glowAlpha = comboT;
 
   let canopyW = 0;
   for (const line of UMBRELLA_CANOPY) canopyW = Math.max(canopyW, renderer.measureWidth(line, f));
@@ -1856,16 +1936,40 @@ function drawUmbrella(s: GameState): void {
   for (let i = 0; i < UMBRELLA_CANOPY.length; i++) {
     const block = renderer.getBlock(UMBRELLA_CANOPY[i], f, lineH);
     renderer.drawBlock(ctx, block, startX, startY + i * lineH, {
-      color: COLORS.umbrella, shadowColor: glowColor, shadowBlur: glowBlur,
+      color: COLORS.umbrella,
+      shadowColor: glowColor,
+      shadowBlur: canopyGlowBlur,
+      alpha: 1,
     });
+    if (glowAlpha > 0) {
+      renderer.drawBlock(ctx, block, startX, startY + i * lineH, {
+        color: COLORS.umbrella,
+        shadowColor: glowColor,
+        shadowBlur: canopyGlowBlur,
+        alpha: glowAlpha * 0.22,
+      });
+    }
   }
 
   const handleStartY = startY + UMBRELLA_CANOPY.length * lineH;
   const handleBlock  = renderer.getBlock('|', f, lineH);
   for (let i = 0; i < UMBRELLA_HANDLE_LINES; i++) {
     renderer.drawBlock(ctx, handleBlock, ux, handleStartY + i * lineH, {
-      color: COLORS.umbrellaRim, shadowColor: glowColor, shadowBlur: 5, align: 'center',
+      color: COLORS.umbrellaRim,
+      shadowColor: glowColor,
+      shadowBlur: rimGlowBlur,
+      align: 'center',
+      alpha: 1,
     });
+    if (glowAlpha > 0) {
+      renderer.drawBlock(ctx, handleBlock, ux, handleStartY + i * lineH, {
+        color: COLORS.umbrellaRim,
+        shadowColor: glowColor,
+        shadowBlur: rimGlowBlur,
+        align: 'center',
+        alpha: glowAlpha * 0.16,
+      });
+    }
   }
 
   const footStartY = handleStartY + UMBRELLA_HANDLE_LINES * lineH;
@@ -1875,7 +1979,7 @@ function drawUmbrella(s: GameState): void {
     renderer.drawBlock(ctx, block, ux, footStartY + i * lineH, {
       color: isSignature ? COLORS.cyan : COLORS.umbrellaRim,
       shadowColor: isSignature ? COLORS.cyan : glowColor,
-      shadowBlur: isSignature ? 8 : 4,
+      shadowBlur: isSignature ? Math.round(4 + comboT * 10) : rimGlowBlur,
       align: 'center',
     });
   }
