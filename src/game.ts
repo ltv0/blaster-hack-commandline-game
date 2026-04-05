@@ -521,11 +521,13 @@ export function computeUmbrellaYBounds(state: Pick<GameState, 'W' | 'H' | 'cloud
   }
 
   const groundY = Math.round(state.H * GROUND_Y_RATIO);
+  const minCloudGap = Math.round(umbrellaLineH * 1.8);
   return {
     // umbrellaY maps to one line below the rendered top (startY = umbrellaY - lineH)
-    minY: Math.max(0, cloudCeiling + umbrellaLineH),
+    // Keep a small extra gap so the umbrella sits slightly lower than the clouds.
+    minY: Math.max(0, cloudCeiling + minCloudGap),
     // bottom of the rendered umbrella sits (totalLines - 1) lines below umbrellaY
-    maxY: groundY - umbrellaLineH * (totalUmbrellaLines - 2), // Adjusted to allow the umbrella to move lower
+    maxY: groundY - umbrellaLineH * (totalUmbrellaLines - 2),
   };
 }
 
