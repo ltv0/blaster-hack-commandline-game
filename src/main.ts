@@ -744,11 +744,36 @@ let spriteCache = new Map<number, HTMLCanvasElement>();
 
 // --- Particle type weights (easy to change / extend) ---
 // Keys are particle type names; values are relative weights (do not need to sum to 1).
-const PARTICLE_TYPE_WEIGHTS: Record<string, number> = {
-  rain: 0.60,
-  snow: 0.25,
-  hail: 0.15,
+let PARTICLE_TYPE_WEIGHTS: Record<string, number> = {
+  rain: 1.0,
+  snow: 0.0,
+  hail: 0.0,
 };
+
+// Update particle type weights as level increases
+function updateParticleTypeWeights(level: number) {
+  // Level 1: rain 100, snow 0, hail 0
+  if (level <= 1) {
+    PARTICLE_TYPE_WEIGHTS = { rain: 1.0, snow: 0.0, hail: 0.0 };
+    return;
+  }
+  // Each level: rain -10, snow +5, hail +5 (percentages)
+  let rain = 1.0 - 0.10 * (level - 1);
+  let snow = 0.05 * (level - 1);
+  let hail = 0.05 * (level - 1);
+  // Clamp values
+  rain = Math.max(0, rain);
+  snow = Math.max(0, snow);
+  hail = Math.max(0, hail);
+  // Normalize if sum > 1
+  const sum = rain + snow + hail;
+  if (sum > 1) {
+    rain /= sum;
+    snow /= sum;
+    hail /= sum;
+  }
+  PARTICLE_TYPE_WEIGHTS = { rain, snow, hail };
+}
 
 // build an ordinal map so each type maps to a small integer (1..N) for compact storage
 const PARTICLE_TYPE_KEYS = Object.keys(PARTICLE_TYPE_WEIGHTS);
@@ -846,6 +871,10 @@ function initParticleSystem(): void {
   FIELD_SCALE_X = FIELD_COLS / CANVAS_W;
   FIELD_SCALE_Y = FIELD_ROWS / CANVAS_H;
   // assign particle types using the central weights map (easy to change/extend)
+  // Update weights based on current level
+  // Use difficultyLevel + 1 if defined, else 1 (difficultyLevel starts at 0 for level 1)
+  const level = state && typeof state.difficultyLevel === 'number' ? state.difficultyLevel + 1 : 1;
+  updateParticleTypeWeights(level);
   particles = Array.from({ length: PARTICLE_N }, () => {
     const sampled = sampleTypeFromWeights(PARTICLE_TYPE_WEIGHTS) as ParticleType;
     return {
@@ -1526,7 +1555,9 @@ function drawLevelUpBanner(s: GameState): void {
   ctx.save(); ctx.fillStyle = '#060c14'; ctx.globalAlpha = alpha * 0.72;
   ctx.fillRect(0, bannerY - 4, W, size + 22); ctx.restore();
   renderer.drawHRule(ctx, '\u2550', f, size + 4, 0, bannerY - 2, W, { color: COLORS.green, alpha: alpha * 0.5 });
-  renderer.drawText(ctx, s.levelUpText, f, size + 4, W / 2, bannerY + 5, { color: COLORS.brightAmber, shadowColor: COLORS.amber, shadowBlur: 16, align: 'center', alpha });
+  // Center text between green lines
+  const textY = bannerY - 2 + (size + 14) / 2;
+  renderer.drawText(ctx, s.levelUpText, f, size + 4, W / 2, textY, { color: COLORS.brightAmber, shadowColor: COLORS.amber, shadowBlur: 16, align: 'center', alpha });
   renderer.drawHRule(ctx, '\u2550', f, size + 4, 0, bannerY + size + 12, W, { color: COLORS.green, alpha: alpha * 0.5 });
 }
 
@@ -1570,7 +1601,7 @@ function drawHUD(s: GameState): void {
 
   const lvl  = `LVL:${s.difficultyLevel + 1}  ${String(Math.floor(s.elapsed)).padStart(3, '0')}s`;
   const lvlW = renderer.measureWidth(lvl, f);
-  renderer.drawText(ctx, lvl, f, size + 2, W - pad - lvlW, textY, { color: COLORS.dim });
+  renderer.drawText(ctx, lvl, f, size + 2, W - pad - lvlW, textY, { color: COLORS.red, shadowColor: COLORS.red, shadowBlur: 10 });
 }
 
 function drawScanlines(alpha: number): void {
