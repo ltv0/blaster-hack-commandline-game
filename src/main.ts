@@ -1,41 +1,4 @@
 import './style.css';
-// ─── Sky Text Background State ──────────────────────────────────────────────
-let skyGrid: string[] = [];
-let skyGridCols = 0;
-let skyGridRows = 0;
-let skyText: string = '';
-
-// Loads the sky text (placeholder: Lorem Ipsum)
-async function loadSkyText() {
-  // In a real game, you might fetch this from a file or server
-  skyText = `Lorem ipsum dolor sit amet, consectetur adipiscing elit. Sed do eiusmod tempor incididunt ut labore et dolore magna aliqua.`;
-  // Optionally, trigger a redraw of the sky background
-  drawSkyTextBackground();
-}
-
-// Draws the sky text background as a grid of characters
-function drawSkyTextBackground(s?: GameState) {
-  // Use current canvas width/height and font size to determine grid
-  const size = sz(W / 75, 9, 14);
-  const f = fnt(size, 700);
-  const charW = Math.max(4, renderer.measureWidth('M', f));
-  const cols = Math.max(1, Math.floor(CANVAS_W / charW));
-  const lineH = Math.round(size * 1.35);
-  const rows = Math.max(1, Math.floor(CANVAS_H / lineH));
-  skyGridCols = cols;
-  skyGridRows = rows;
-  // Fill the grid with skyText, wrapping as needed
-  let idx = 0;
-  skyGrid = [];
-  for (let r = 0; r < rows; r++) {
-    let row = '';
-    for (let c = 0; c < cols; c++) {
-      row += skyText[idx % skyText.length] || ' ';
-      idx++;
-    }
-    skyGrid.push(row);
-  }
-}
 import {
   createInitialState,
   update,
@@ -51,6 +14,7 @@ import {
   type Cloud,
 } from './game.ts';
 import { PretextRenderer } from './pretext-renderer.ts';
+import skyTextRaw from './LoremIpsum.txt?raw';
 
 const canvas = document.getElementById('game-canvas') as HTMLCanvasElement;
 const ctx = canvas.getContext('2d')!;
@@ -100,6 +64,69 @@ function cloudFnt(size: number, weight: 400 | 700 = 700): string {
 }
 function sz(base: number, minV: number, maxV: number): number {
   return Math.max(minV, Math.min(maxV, base));
+}
+
+let skyTextSource = '';
+let skyGrid: string[] = [];
+let skyGridCols = 0;
+let skyGridRows = 0;
+
+function buildSkyGrid(cols: number, rows: number, scrollOffset = 0): void {
+  if (cols <= 0 || rows <= 0) {
+    skyGrid = [];
+    skyGridCols = 0;
+    skyGridRows = 0;
+    return;
+  }
+  const source = skyTextSource.length > 0
+    ? skyTextSource
+    : 'lorem ipsum dolor sit amet consectetur adipiscing elit sed do eiusmod tempor';
+  const normalized = source.replace(/\s+/g, ' ').trim();
+  const padded = `${normalized}   `;
+  const len = padded.length;
+  const safeOffset = ((scrollOffset % len) + len) % len;
+
+  skyGridCols = cols;
+  skyGridRows = rows;
+  skyGrid = new Array(rows);
+  for (let r = 0; r < rows; r++) {
+    let line = '';
+    const rowOffset = (safeOffset + r * Math.max(3, Math.floor(cols * 0.12))) % len;
+    for (let c = 0; c < cols; c++) {
+      line += padded[(rowOffset + c) % len] ?? ' ';
+    }
+    skyGrid[r] = line;
+  }
+}
+
+async function loadSkyText(): Promise<void> {
+  skyTextSource = (skyTextRaw ?? '').replace(/\r?\n/g, ' ').trim();
+  if (skyTextSource.length === 0) {
+    skyTextSource = 'lorem ipsum dolor sit amet consectetur adipiscing elit sed do eiusmod tempor';
+  }
+}
+
+function drawSkyTextBackground(s: GameState): void {
+  const hudH = sz(W / 70, 10, 14) + 20;
+  const size = sz(W / 75, 9, 14);
+  const lineH = Math.round(size * 1.35);
+  const f = fnt(size, 700);
+  const charW = Math.max(4, renderer.measureWidth('M', f));
+  const cols = Math.max(1, Math.floor(CANVAS_W / charW));
+  const rows = Math.max(1, Math.floor(CANVAS_H / lineH));
+  const startY = hudH + 5;
+  const scrollOffset = Math.floor(s.elapsed * 4);
+
+  buildSkyGrid(cols, rows, scrollOffset);
+
+  for (let r = 0; r < rows; r++) {
+    const line = skyGrid[r] ?? ' '.repeat(cols);
+    const block = renderer.getBlock(line, f, lineH);
+    renderer.drawBlock(ctx, block, 0, startY + r * lineH, {
+      color: COLORS.dimGreen,
+      alpha: 0.18,
+    });
+  }
 }
 
 let audioCtx: AudioContext | null = null;
@@ -173,11 +200,20 @@ const BG_CHARS = [
   'x','o','#','@','%',
 ];
 interface BgCell { charIndex: number; phase: number; speed: number; changeTimer: number; changeInterval: number; }
+interface BgRepulsor { x: number; y: number; radius: number; strength: number; }
+interface BgOccluder { x: number; y: number; w: number; h: number; }
+interface BgInterval { left: number; right: number; }
 let bgCells: BgCell[] = [];
 let bgCols = 0; let bgRows = 0; let bgCellW = 0; let bgCellH = 0; let bgFont = '';
+let bgHoverActive = false;
+let bgHoverPulse = 0;
+let bgHoverX = 0;
+let bgHoverY = 0;
+let bgHoverTargetX = 0;
+let bgHoverTargetY = 0;
 
 function buildAsciiBackground(): void {
-  const size = sz(W / 95, 30, 30);
+  const size = sz(W / 95, 20, 20);
   bgFont = fnt(size);
   bgCellW = renderer.measureWidth('M', bgFont) || 8;
   bgCellH = size * 1.3;
@@ -193,8 +229,18 @@ function buildAsciiBackground(): void {
       changeInterval: 2.5 + Math.random() * 9,
     }));
   }
+  bgHoverX = W * 0.5;
+  bgHoverY = H * 0.45;
+  bgHoverTargetX = bgHoverX;
+  bgHoverTargetY = bgHoverY;
 }
 function updateAsciiBackground(dt: number): void {
+  const follow = Math.min(1, dt * (bgHoverActive ? 14 : 6));
+  bgHoverX += (bgHoverTargetX - bgHoverX) * follow;
+  bgHoverY += (bgHoverTargetY - bgHoverY) * follow;
+  bgHoverPulse += dt * (bgHoverActive ? 7 : 3);
+  if (bgHoverPulse > Math.PI * 2) bgHoverPulse -= Math.PI * 2;
+
   for (let i = 0; i < bgCells.length; i++) {
     const c = bgCells[i];
     c.phase += c.speed * dt;
@@ -208,27 +254,307 @@ function updateAsciiBackground(dt: number): void {
     }
   }
 }
-function drawAsciiBackground(scrollY: number, baseAlpha: number, tintColor: string): void {
+
+// ─── Pretext-style circle obstacle for true text wrap ─────────────────────────
+interface BgCircleObstacle { cx: number; cy: number; rx: number; ry: number; hPad: number; vPad: number; }
+
+/**
+ * Compute the horizontal interval blocked by an ellipse (rx, ry) at a given
+ * vertical band [bandTop, bandBottom], with padding.  Returns null if the
+ * band doesn't intersect the ellipse.  Adapted directly from the pretext
+ * editorial-engine demo's circleIntervalForBand.
+ */
+function ellipseIntervalForBand(
+  cx: number, cy: number,
+  rx: number, ry: number,
+  bandTop: number, bandBottom: number,
+  hPad: number, vPad: number,
+): BgInterval | null {
+  const top    = bandTop    - vPad;
+  const bottom = bandBottom + vPad;
+  if (top >= cy + ry || bottom <= cy - ry) return null;
+  // Closest y on [top, bottom] to cy
+  const minDy = cy >= top && cy <= bottom ? 0 : cy < top ? top - cy : cy - bottom;
+  if (minDy >= ry) return null;
+  // Ellipse: (x/rx)²+(y/ry)²=1 → maxDx at minDy
+  const maxDx = rx * Math.sqrt(1 - (minDy / ry) ** 2);
+  return { left: cx - maxDx - hPad, right: cx + maxDx + hPad };
+}
+
+/**
+ * Carve blocked intervals out of a base interval, returning the remaining
+ * open slots.  Directly from the pretext editorial-engine demo.
+ */
+function carveTextLineSlots(base: BgInterval, blocked: BgInterval[]): BgInterval[] {
+  let slots: BgInterval[] = [{ left: base.left, right: base.right }];
+  for (let bi = 0; bi < blocked.length; bi++) {
+    const interval = blocked[bi]!;
+    const next: BgInterval[] = [];
+    for (let si = 0; si < slots.length; si++) {
+      const slot = slots[si]!;
+      if (interval.right <= slot.left || interval.left >= slot.right) {
+        next.push(slot);
+        continue;
+      }
+      if (interval.left > slot.left) next.push({ left: slot.left, right: interval.left });
+      if (interval.right < slot.right) next.push({ left: interval.right, right: slot.right });
+    }
+    slots = next;
+  }
+  return slots;
+}
+
+function mergeBlockedIntervals(intervals: BgInterval[], minX: number, maxX: number): BgInterval[] {
+  if (intervals.length === 0) return [];
+  const clamped = intervals
+    .map((it) => ({ left: Math.max(minX, it.left), right: Math.min(maxX, it.right) }))
+    .filter((it) => it.right > it.left)
+    .sort((a, b) => a.left - b.left);
+  if (clamped.length === 0) return [];
+
+  const merged: BgInterval[] = [clamped[0]!];
+  for (let i = 1; i < clamped.length; i++) {
+    const cur = clamped[i]!;
+    const last = merged[merged.length - 1]!;
+    if (cur.left <= last.right) {
+      last.right = Math.max(last.right, cur.right);
+    } else {
+      merged.push({ left: cur.left, right: cur.right });
+    }
+  }
+  return merged;
+}
+
+/**
+ * Given a glyph x position and the open slots for this row, return whether
+ * the glyph is in a slot and how close it is to the nearest slot edge
+ * (wrapT=1 means right at the edge, 0 means far from any edge).
+ */
+function glyphSlotResult(
+  x: number,
+  slots: BgInterval[],
+  glowWidth: number,
+): { inSlot: boolean; wrapT: number } {
+  for (let i = 0; i < slots.length; i++) {
+    const s = slots[i]!;
+    if (x < s.left || x > s.right) continue;
+    // In slot — measure closeness to either edge
+    const distLeft  = x - s.left;
+    const distRight = s.right - x;
+    const edgeDist  = Math.min(distLeft, distRight);
+    const wrapT = Math.max(0, 1 - edgeDist / glowWidth);
+    return { inSlot: true, wrapT };
+  }
+  return { inSlot: false, wrapT: 0 };
+}
+
+function drawAsciiBackground(
+  scrollY: number,
+  baseAlpha: number,
+  tintColor: string,
+  repulsors: BgRepulsor[] = [],
+  occluders: BgOccluder[] = [],
+  circleObstacles: BgCircleObstacle[] = [],
+): void {
   if (bgCells.length === 0 || bgCols === 0) return;
   ctx.save();
   const scrolledY = scrollY % bgCellH;
   const groundY = H * 0.84;
+  const hoverRadius = Math.max(95, Math.min(230, W * 0.2));
+  const hoverPush = 8.5;
+  const hoverBoost = 0.42 + 0.14 * Math.sin(bgHoverPulse);
+  // Glow width: how many px from a slot edge counts as "near the wrap"
+  const glowWidth = bgCellW * 1.0;  // tight glow — only 1 char from the edge
+
   for (let row = 0; row < bgRows; row++) {
     const y = row * bgCellH - scrolledY;
     if (y > groundY + bgCellH) continue;
+
+    const bandTop    = y;
+    const bandBottom = y + bgCellH;
+
+    // --- Collect all blocked intervals for this band ---
+    const blocked: BgInterval[] = [];
+
+    // Rect occluders (axis-aligned boxes — hard blanks, e.g. HUD)
+    for (let oi = 0; oi < occluders.length; oi++) {
+      const o = occluders[oi]!;
+      if (bandBottom <= o.y || bandTop >= o.y + o.h) continue;
+      blocked.push({ left: o.x, right: o.x + o.w });
+    }
+
+    // Circle/ellipse obstacles (pretext-style true wrap)
+    for (let ci = 0; ci < circleObstacles.length; ci++) {
+      const co = circleObstacles[ci]!;
+      const interval = ellipseIntervalForBand(
+        co.cx, co.cy, co.rx, co.ry,
+        bandTop, bandBottom, co.hPad, co.vPad,
+      );
+      if (interval !== null) blocked.push(interval);
+    }
+
+    // Carve open slots from [0, W]
+    const slots = carveTextLineSlots({ left: 0, right: W }, blocked);
+    if (slots.length === 0) continue;
+
     for (let col = 0; col < bgCols; col++) {
       const x = col * bgCellW;
       const idx = row * bgCols + col;
       if (idx >= bgCells.length) continue;
-      const cell = bgCells[idx];
-      const pulse = 0.3 + 0.7 * (0.5 + 0.5 * Math.sin(cell.phase));
-      const alpha = baseAlpha * pulse;
+
+      // True wrap: only draw if this glyph's x falls inside an open slot
+      const slotResult = glyphSlotResult(x, slots, glowWidth);
+      if (!slotResult.inSlot) continue;
+
+      const cell = bgCells[idx]!;
+      const pulse = 0.72 + 0.28 * (0.5 + 0.5 * Math.sin(cell.phase));
+
+      // Hover push (mouse proximity)
+      const dx = x - bgHoverX;
+      const dy = y - bgHoverY;
+      const dist = Math.hypot(dx, dy);
+      const hoverT = Math.max(0, 1 - dist / hoverRadius);
+      const push = hoverT * hoverPush;
+      const dirX = dist > 0.0001 ? dx / dist : 0;
+      const dirY = dist > 0.0001 ? dy / dist : -1;
+      const warp = bgHoverActive ? 1 : 0.42;
+
+      // Object repulsors (hazards, clouds — still push, not carve)
+      let objectPushX = 0;
+      let objectPushY = 0;
+      let objectBoost = 0;
+      for (let ri = 0; ri < repulsors.length; ri++) {
+        const rep = repulsors[ri]!;
+        const odx = x - rep.x;
+        const ody = y - rep.y;
+        const od = Math.hypot(odx, ody);
+        if (od >= rep.radius) continue;
+        const t = 1 - od / rep.radius;
+        const mag = t * t * rep.strength;
+        const oux = od > 0.0001 ? odx / od : (col % 2 === 0 ? 1 : -1);
+        const ouy = od > 0.0001 ? ody / od : -1;
+        objectPushX += oux * mag;
+        objectPushY += ouy * mag;
+        objectBoost += t;
+      }
+
+      const drawX = x + dirX * push * warp + objectPushX;
+      const drawY = y + dirY * push * warp + objectPushY;
+
+      // wrapT brightens glyphs at the silhouette edge — the "wrap glow"
+      const alpha = baseAlpha * pulse
+        * (1.2 + hoverT * hoverBoost)
+        * (1 + Math.min(0.35, objectBoost * 0.12))
+        * (1 + slotResult.wrapT * 0.55);   // edge glow: up to +55% brightness
+
       if (alpha < 0.004) continue;
-      const block = renderer.getBlock(BG_CHARS[cell.charIndex], bgFont, bgCellH);
-      renderer.drawBlock(ctx, block, x, y, { color: tintColor, alpha });
+      const block = renderer.getBlock(BG_CHARS[cell.charIndex!], bgFont, bgCellH);
+      renderer.drawBlock(ctx, block, drawX, drawY, { color: tintColor, alpha });
     }
   }
   ctx.restore();
+}
+
+function buildBackgroundRepulsors(s: GameState): BgRepulsor[] {
+  const out: BgRepulsor[] = [];
+  // Note: umbrella and traveler are now handled by circle obstacles (true wrap),
+  // not repulsors.  Only soft-push effects remain here for hazards and clouds.
+
+  const cloudCount = Math.min(8, s.clouds.length);
+  for (let i = 0; i < cloudCount; i++) {
+    const c = s.clouds[i];
+    const cloudW = c.artW > 0 ? c.artW : Math.max(80, Math.min(220, W * 0.18));
+    out.push({
+      x: c.x,
+      y: c.y + 24,
+      radius: Math.max(65, cloudW * 0.32),
+      strength: 6.2,
+    });
+  }
+
+  const hazardCount = Math.min(28, s.hazards.length);
+  for (let i = 0; i < hazardCount; i++) {
+    const h = s.hazards[i];
+    out.push({
+      x: h.x,
+      y: h.y,
+      radius: h.type === 'hail' ? 30 : 24,
+      strength: h.type === 'hail' ? 6.5 : 5.2,
+    });
+  }
+
+  return out;
+}
+
+function buildBackgroundOccluders(s: GameState): BgOccluder[] {
+  const out: BgOccluder[] = [];
+  // Traveler body — keep as a tight rect occluder so the body centre stays clean.
+  // The circle obstacle adds the wrap glow around it; the rect ensures nothing
+  // draws inside the sprite itself.
+  const travelerSize = sz(W / 40, 14, 22);
+  const travelerW = travelerSize * 3.2;   // tighter than before — circle obstacle handles outer wrap
+  const travelerH = travelerSize * 3.6;
+  out.push({
+    x: s.travelerX - travelerW * 0.5,
+    y: s.travelerY - travelerSize * 0.1,
+    w: travelerW,
+    h: travelerH,
+  });
+  // Umbrella is fully handled by the circle obstacles — no rect occluder needed.
+  return out;
+}
+
+/**
+ * Build pretext-style ellipse obstacles for the umbrella canopy and the
+ * traveler body so that the ASCII background text wraps around them using
+ * true slot-carving instead of the old push/repulsor approach.
+ */
+function buildBackgroundCircleObstacles(s: GameState): BgCircleObstacle[] {
+  const out: BgCircleObstacle[] = [];
+
+  // ── Umbrella canopy ──────────────────────────────────────────────────────
+  const umbrellaSize = sz(W / 100, 7, 11);
+  const umbrellaLineH = s.umbrellaArtLineH > 0 ? s.umbrellaArtLineH : Math.round(umbrellaSize * 1.15);
+  const artW = s.umbrellaArtWidth > 0 ? s.umbrellaArtWidth : Math.max(120, s.umbrellaW * 1.2);
+  const artStartX = Number.isFinite(s.umbrellaArtStartX) ? s.umbrellaArtStartX : s.umbrellaX - artW * 0.5;
+  const artStartY = Number.isFinite(s.umbrellaArtStartY) ? s.umbrellaArtStartY : s.umbrellaY - umbrellaLineH;
+
+  // Canopy: the umbrella arch is dome-shaped — widest at the bottom rim,
+  // narrowing to a peak at the top.  Bias the ellipse centre DOWN toward
+  // the rim so its upper half only blocks the narrow peak area, allowing
+  // background glyphs to wrap in tight at the top of the arch.
+  const UMBRELLA_CANOPY_LINES_BG = 6;
+  const canopyRimY = artStartY + UMBRELLA_CANOPY_LINES_BG * umbrellaLineH; // bottom of canopy
+  const canopyCx = artStartX + artW / 2;
+  // Centre is 70% of the way down from artStartY to the rim — bottom-heavy
+  const canopyCy = artStartY + UMBRELLA_CANOPY_LINES_BG * umbrellaLineH * 0.70;
+  const canopyRx = artW / 2;
+  // ry: distance from centre to the rim (below) — top clips naturally
+  const canopyRy = canopyRimY - canopyCy;
+  out.push({ cx: canopyCx, cy: canopyCy, rx: canopyRx, ry: canopyRy, hPad: 2, vPad: 1 });
+
+  // Handle + foot: narrow — just covers the stick character
+  const HANDLE_LINES_BG = 12;
+  const handleTop = artStartY + UMBRELLA_CANOPY_LINES_BG * umbrellaLineH;
+  const handleCy  = handleTop + (HANDLE_LINES_BG * umbrellaLineH) / 2;
+  out.push({
+    cx: canopyCx, cy: handleCy,
+    rx: bgCellW * 1.1, ry: (HANDLE_LINES_BG * umbrellaLineH) / 2,
+    hPad: 2, vPad: 1,
+  });
+
+  // ── Traveler ─────────────────────────────────────────────────────────────
+  const travelerSize = sz(W / 40, 14, 22);
+  out.push({
+    cx: s.travelerX,
+    cy: s.travelerY + travelerSize * 1.2,
+    rx: travelerSize * 1.5,
+    ry: travelerSize * 1.9,
+    hPad: 2,
+    vPad: 1,
+  });
+
+  return out;
 }
 
 // ─── State + loop ─────────────────────────────────────────────────────────────
@@ -339,9 +665,9 @@ function updateUmbrellaPhysics(s: GameState, dt: number): void {
 // ─── Draw dispatcher ──────────────────────────────────────────────────────────
 function draw(s: GameState): void {
   const grad = ctx.createLinearGradient(0, 0, 0, H);
-  grad.addColorStop(0,   '#060c14');
-  grad.addColorStop(0.55,'#091420');
-  grad.addColorStop(1,   '#0d1117');
+  grad.addColorStop(0,   '#050d18');
+  grad.addColorStop(0.55,'#0a1727');
+  grad.addColorStop(1,   '#122438');
   ctx.fillStyle = grad;
   ctx.fillRect(0, 0, W, H);
   if (s.phase === 'boot') { drawBoot(s); }
@@ -356,7 +682,7 @@ function drawBoot(s: GameState): void {
   const startY = H * 0.18;
   const indent = cx - sz(W * 0.28, 120, 230);
 
-  drawAsciiBackground(0, 0.08, COLORS.dimGreen);
+  drawAsciiBackground(0, 0.24, COLORS.brightGreen);
   drawScanlines(0.04);
 
   renderer.drawText(ctx, '[ WEATHER REPORT ]', fnt(size + 5, 700), lh, cx, startY - lh * 2.2, {
@@ -389,8 +715,10 @@ function drawBoot(s: GameState): void {
 
 // ─── Game world ───────────────────────────────────────────────────────────────
 function drawGame(s: GameState): void {
-  drawAsciiBackground(s.bgStarOffset * 0.3, 0.065, '#244d35');
-  // Draw repeating Lorem Ipsum text across the sky area (behind clouds)
+  const repulsors = buildBackgroundRepulsors(s);
+  const occluders = buildBackgroundOccluders(s);
+  const circleObstacles = buildBackgroundCircleObstacles(s);
+  drawAsciiBackground(s.bgStarOffset * 0.3, 0.21, '#a9f7c4', repulsors, occluders, circleObstacles);
   drawSkyTextBackground(s);
   if (SHOW_CLOUD_SOURCE_FIELD) drawSourceField();
   drawStars(s);
@@ -1347,12 +1675,49 @@ function bindEvents(): void {
   window.addEventListener('resize', () => { ctx.setTransform(1,0,0,1,0,0); resize(); buildStars(W, H); buildAsciiBackground(); });
   window.addEventListener('keydown', (e) => { resumeAudio(); handleKeyDown(state, e.key); });
   window.addEventListener('keyup', (e) => { handleKeyUp(state, e.key); });
-  canvas.addEventListener('mousemove', (e) => { handlePointerMove(state, canvasPos(e).x, canvasPos(e).y); });
+  canvas.addEventListener('mousemove', (e) => {
+    const p = canvasPos(e);
+    bgHoverActive = true;
+    bgHoverTargetX = p.x;
+    bgHoverTargetY = p.y;
+    handlePointerMove(state, p.x, p.y);
+  });
+  canvas.addEventListener('mouseenter', (e) => {
+    const p = canvasPos(e);
+    bgHoverActive = true;
+    bgHoverTargetX = p.x;
+    bgHoverTargetY = p.y;
+  });
+  canvas.addEventListener('mouseleave', () => {
+    bgHoverActive = false;
+    bgHoverTargetX = W * 0.5;
+    bgHoverTargetY = H * 0.45;
+  });
   canvas.addEventListener('mousedown', (e) => { resumeAudio(); const p = canvasPos(e); handlePointerDown(state, p.x, p.y); });
   window.addEventListener('mouseup', () => handlePointerUp(state));
-  canvas.addEventListener('touchmove', (e) => { e.preventDefault(); handlePointerMove(state, canvasPos(e.touches[0]).x, canvasPos(e.touches[0]).y); }, { passive: false });
-  canvas.addEventListener('touchstart', (e) => { e.preventDefault(); resumeAudio(); const p = canvasPos(e.touches[0]); handlePointerDown(state, p.x, p.y); }, { passive: false });
-  window.addEventListener('touchend', () => handlePointerUp(state));
+  canvas.addEventListener('touchmove', (e) => {
+    e.preventDefault();
+    const p = canvasPos(e.touches[0]);
+    bgHoverActive = true;
+    bgHoverTargetX = p.x;
+    bgHoverTargetY = p.y;
+    handlePointerMove(state, p.x, p.y);
+  }, { passive: false });
+  canvas.addEventListener('touchstart', (e) => {
+    e.preventDefault();
+    resumeAudio();
+    const p = canvasPos(e.touches[0]);
+    bgHoverActive = true;
+    bgHoverTargetX = p.x;
+    bgHoverTargetY = p.y;
+    handlePointerDown(state, p.x, p.y);
+  }, { passive: false });
+  window.addEventListener('touchend', () => {
+    bgHoverActive = false;
+    bgHoverTargetX = W * 0.5;
+    bgHoverTargetY = H * 0.45;
+    handlePointerUp(state);
+  });
 }
 
 init();
