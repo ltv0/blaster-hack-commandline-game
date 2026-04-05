@@ -1,4 +1,41 @@
 import './style.css';
+// ─── Sky Text Background State ──────────────────────────────────────────────
+let skyGrid: string[] = [];
+let skyGridCols = 0;
+let skyGridRows = 0;
+let skyText: string = '';
+
+// Loads the sky text (placeholder: Lorem Ipsum)
+async function loadSkyText() {
+  // In a real game, you might fetch this from a file or server
+  skyText = `Lorem ipsum dolor sit amet, consectetur adipiscing elit. Sed do eiusmod tempor incididunt ut labore et dolore magna aliqua.`;
+  // Optionally, trigger a redraw of the sky background
+  drawSkyTextBackground();
+}
+
+// Draws the sky text background as a grid of characters
+function drawSkyTextBackground(s?: GameState) {
+  // Use current canvas width/height and font size to determine grid
+  const size = sz(W / 75, 9, 14);
+  const f = fnt(size, 700);
+  const charW = Math.max(4, renderer.measureWidth('M', f));
+  const cols = Math.max(1, Math.floor(CANVAS_W / charW));
+  const lineH = Math.round(size * 1.35);
+  const rows = Math.max(1, Math.floor(CANVAS_H / lineH));
+  skyGridCols = cols;
+  skyGridRows = rows;
+  // Fill the grid with skyText, wrapping as needed
+  let idx = 0;
+  skyGrid = [];
+  for (let r = 0; r < rows; r++) {
+    let row = '';
+    for (let c = 0; c < cols; c++) {
+      row += skyText[idx % skyText.length] || ' ';
+      idx++;
+    }
+    skyGrid.push(row);
+  }
+}
 import {
   createInitialState,
   update,
