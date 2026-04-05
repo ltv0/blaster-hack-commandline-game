@@ -156,6 +156,8 @@ interface BgCell { charIndex: number; phase: number; speed: number; changeTimer:
 interface BgRepulsor { x: number; y: number; radius: number; strength: number; }
 interface BgOccluder { x: number; y: number; w: number; h: number; }
 interface BgInterval { left: number; right: number; }
+const SKY_GRID_COL_DRIFT_THRESHOLD = 2;
+const SKY_GRID_ROW_DRIFT_THRESHOLD = 1;
 let bgCells: BgCell[] = [];
 let bgCols = 0; let bgRows = 0; let bgCellW = 0; let bgCellH = 0; let bgFont = '';
 let bgHoverActive = false;
@@ -331,6 +333,9 @@ function drawAsciiBackground(
 ): void {
   if (bgCells.length === 0 || bgCols === 0) return;
   ctx.save();
+  ctx.font = bgFont;
+  ctx.textBaseline = 'top';
+  ctx.fillStyle = tintColor;
   const scrolledY = scrollY % bgCellH;
   const maxY = clipToGround ? H * GROUND_Y_RATIO : H;
   const hoverRadius = Math.max(95, Math.min(230, W * 0.2));
@@ -340,9 +345,21 @@ function drawAsciiBackground(
   const glowWidth = bgCellW * 1.0;  // tight glow — only 1 char from the edge
   const textChars = skyTextStream;
 
+  // Spatial partitioning: map repulsors into potentially intersecting rows once.
+  const repulsorsByRow: BgRepulsor[][] = Array.from({ length: bgRows }, () => []);
+  for (let i = 0; i < repulsors.length; i++) {
+    const rep = repulsors[i]!;
+    const minRow = Math.max(0, Math.floor((rep.y - rep.radius + scrolledY) / bgCellH) - 1);
+    const maxRow = Math.min(bgRows - 1, Math.ceil((rep.y + rep.radius + scrolledY) / bgCellH) + 1);
+    for (let row = minRow; row <= maxRow; row++) {
+      repulsorsByRow[row]!.push(rep);
+    }
+  }
+
   for (let row = 0; row < bgRows; row++) {
     const y = row * bgCellH - scrolledY;
     if (y > maxY + bgCellH) continue;
+    const rowRepulsors = repulsorsByRow[row]!;
 
     const bandTop    = y;
     const bandBottom = y + bgCellH;
@@ -410,8 +427,8 @@ function drawAsciiBackground(
       let objectPushX = 0;
       let objectPushY = 0;
       let objectBoost = 0;
-      for (let ri = 0; ri < repulsors.length; ri++) {
-        const rep = repulsors[ri]!;
+      for (let ri = 0; ri < rowRepulsors.length; ri++) {
+        const rep = rowRepulsors[ri]!;
         const odx = x - rep.x;
         const ody = y - rep.y;
         const od = Math.hypot(odx, ody);
@@ -451,8 +468,8 @@ function drawAsciiBackground(
         charToUse = BG_CHARS[cell.charIndex!]!;
       }
       
-      const block = renderer.getBlock(charToUse, bgFont, bgCellH);
-      renderer.drawBlock(ctx, block, drawX, drawY, { color: tintColor, alpha });
+      ctx.globalAlpha = alpha;
+      ctx.fillText(charToUse, drawX, drawY);
     }
   }
   ctx.restore();
@@ -977,23 +994,30 @@ function drawSkyTextBackground(s: GameState): void {
   const skyHeight = Math.max(0, groundY - startY);
   const cols = Math.max(1, Math.floor(W / charW));
   const rows = Math.max(1, Math.floor(skyHeight / lineH));
+  const hasGrid = skyGrid.length > 0;
+  const canReuseGrid =
+    hasGrid
+    && Math.abs(cols - skyGridCols) <= SKY_GRID_COL_DRIFT_THRESHOLD
+    && Math.abs(rows - skyGridRows) <= SKY_GRID_ROW_DRIFT_THRESHOLD;
 
-  // If grid size hasn't changed we can keep previous content
-  if (cols === skyGridCols && rows === skyGridRows && skyGrid.length > 0) {
+  // Reuse the old grid when dimensions only drift slightly.
+  if (canReuseGrid) {
     // Draw the pre-computed grid with per-glyph offset based on object proximity
     ctx.save();
+    ctx.font = f;
+    ctx.textBaseline = 'top';
+    ctx.fillStyle = COLORS.dim;
     ctx.globalAlpha = 0.45;
     for (let r = 0; r < rows; r++) {
       const line = skyGrid[r] || ' '.repeat(cols);
-      for (let c = 0; c < line.length; c++) {
-        const char = line[c];
+      for (let c = 0; c < cols; c++) {
+        const char = c < line.length ? line[c]! : ' ';
         const baseX = c * charW;
         const baseY = startY + r * lineH;
         const offset = calculateGlyphOffset(baseX, baseY, s);
         const glyphX = baseX + offset.dx;
         const glyphY = baseY + offset.dy;
-        const block = renderer.getBlock(char, f, lineH);
-        renderer.drawBlock(ctx, block, glyphX, glyphY, { color: COLORS.dim, alpha: 0.45 });
+        ctx.fillText(char, glyphX, glyphY);
       }
     }
     ctx.restore();
@@ -1018,18 +1042,20 @@ function drawSkyTextBackground(s: GameState): void {
 
   // Render the full sky grid with per-glyph offset
   ctx.save();
+  ctx.font = f;
+  ctx.textBaseline = 'top';
+  ctx.fillStyle = COLORS.dim;
   ctx.globalAlpha = 0.45;
   for (let r = 0; r < rows; r++) {
     const line = skyGrid[r] || ' '.repeat(cols);
-    for (let c = 0; c < line.length; c++) {
-      const char = line[c];
+    for (let c = 0; c < cols; c++) {
+      const char = c < line.length ? line[c]! : ' ';
       const baseX = c * charW;
       const baseY = startY + r * lineH;
       const offset = calculateGlyphOffset(baseX, baseY, s);
       const glyphX = baseX + offset.dx;
       const glyphY = baseY + offset.dy;
-      const block = renderer.getBlock(char, f, lineH);
-      renderer.drawBlock(ctx, block, glyphX, glyphY, { color: COLORS.dim, alpha: 0.45 });
+      ctx.fillText(char, glyphX, glyphY);
     }
   }
   ctx.restore();
