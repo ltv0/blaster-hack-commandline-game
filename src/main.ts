@@ -2200,9 +2200,9 @@ function drawGameOver(s: GameState): void {
   const cx   = W / 2;
   const size = sz(W / 45, 12, 18);
   const lh   = size + 6;
-  // Extend the process killed box for more space
+  // Shorten the process killed box
   const boxW = Math.min(600, W - 20);
-  const boxH = 300;
+  const boxH = 220;
   const boxX = cx - boxW / 2;
   const boxY = H / 2 - boxH / 2;
   ctx.fillStyle = 'rgba(6,12,20,0.92)'; ctx.fillRect(boxX, boxY, boxW, boxH);
