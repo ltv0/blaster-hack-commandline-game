@@ -1272,7 +1272,7 @@ function updatePlaying(state: GameState, dt: number): void {
   if (state.jumpTimer <= 0 && !state.isJumping) {
     // Raise jump ceiling over time while keeping early jumps readable.
     const jumpMinRatio = 0.10;
-    const jumpMaxRatio = Math.min(0.42, 0.20 + state.difficultyLevel * 0.015 + state.elapsed * 0.0008);
+    const jumpMaxRatio = Math.min(0.75, 0.20 + state.difficultyLevel * 0.015 + state.elapsed * 0.0008);
     const jumpH = state.H * (jumpMinRatio + Math.random() * (jumpMaxRatio - jumpMinRatio));
     state.travelerVY = -Math.sqrt(2 * gravity * jumpH); // v = sqrt(2gh)
     state.isJumping = true;
