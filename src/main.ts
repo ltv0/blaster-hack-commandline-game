@@ -1556,11 +1556,26 @@ function drawClouds(s: GameState): void {
   const drawCloudRun = (text: string, runType: ParticleType | 'mixed' | undefined, x: number, y: number): void => {
     if (text.length === 0) return;
     const color = runType === 'snow' ? COLORS.cloudSnow : runType === 'hail' ? COLORS.cloudHail : COLORS.cloudRain;
-    const glowFactor = runType === 'snow' ? 0.9 : runType === 'hail' ? 0.6 : 1.0;
-    const glowBlur = Math.max(6, Math.round(size * 1.6 * glowFactor));
+    const glowColor = color;
+    const glowFactor = runType === 'snow' ? 0.95 : runType === 'hail' ? 0.7 : 1.1;
+    const haloBlur = Math.max(10, Math.round(size * 2.1 * glowFactor));
+    const innerBlur = Math.max(5, Math.round(size * 0.9 * glowFactor));
+    const haloAlpha = runType === 'hail' ? 0.34 : runType === 'snow' ? 0.42 : 0.5;
     const block = renderer.getBlock(text, f, lineH);
-    renderer.drawBlock(ctx, block, x, y, { color, shadowColor: color, shadowBlur: glowBlur, alpha: 0.6 });
-    renderer.drawBlock(ctx, block, x, y, { color, alpha: 1 });
+
+    // Traveler-style glow: a soft halo first, then the crisp glyph with a tighter inner glow.
+    renderer.drawBlock(ctx, block, x, y, {
+      color: glowColor,
+      shadowColor: glowColor,
+      shadowBlur: haloBlur,
+      alpha: haloAlpha,
+    });
+    renderer.drawBlock(ctx, block, x, y, {
+      color,
+      shadowColor: glowColor,
+      shadowBlur: innerBlur,
+      alpha: 1,
+    });
   };
 
   for (let r = 0; r < rows; r++) {
