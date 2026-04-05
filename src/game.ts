@@ -287,7 +287,9 @@ export interface GameState {
 
   // wind
   windX: number;
+  windTargetX: number;
   windChangeTimer: number;
+  windGustTimer: number;
 
   // vfx
   deathFlash: number;
@@ -466,7 +468,9 @@ export function createInitialState(W: number, H: number): GameState {
     levelUpText: '',
 
     windX: 0,
-    windChangeTimer: 5,
+    windTargetX: 0,
+    windChangeTimer: 2.2,
+    windGustTimer: 0,
 
     deathFlash: 0,
 
@@ -538,6 +542,33 @@ export function computeUmbrellaYBounds(state: Pick<GameState, 'W' | 'H' | 'cloud
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
+
+function clamp(value: number, min: number, max: number): number {
+  return Math.max(min, Math.min(max, value));
+}
+
+function scheduleWindShift(state: GameState, immediate = false): void {
+  const maxWind = Math.min(160, 24 + state.difficultyLevel * 12 + state.elapsed * 0.28);
+  const bias = Math.sin(state.elapsed * 0.33 + state.difficultyLevel * 0.7) * 16;
+  state.windTargetX = clamp(((Math.random() * 2) - 1) * maxWind + bias, -maxWind, maxWind);
+  state.windChangeTimer = immediate ? (1.2 + Math.random() * 1.2) : (2.8 + Math.random() * 3.2);
+  state.windGustTimer = 0.8 + Math.random() * 1.4;
+}
+
+function updateWind(state: GameState, dt: number): void {
+  if (!Number.isFinite(state.windTargetX)) state.windTargetX = state.windX || 0;
+  if (!Number.isFinite(state.windGustTimer)) state.windGustTimer = 0;
+
+  state.windChangeTimer -= dt;
+  if (state.windChangeTimer <= 0) scheduleWindShift(state);
+  if (state.windGustTimer > 0) state.windGustTimer = Math.max(0, state.windGustTimer - dt);
+
+  const gustPhase = state.elapsed * (1.3 + state.difficultyLevel * 0.06);
+  const gustBoost = state.windGustTimer > 0 ? Math.sin(gustPhase) * 10 : 0;
+  const desiredWind = state.windTargetX + gustBoost;
+  const responsiveness = 1.8 + Math.min(0.9, state.difficultyLevel * 0.05);
+  state.windX += (desiredWind - state.windX) * Math.min(1, responsiveness * dt);
+}
 
 // ─── Cloud helpers ────────────────────────────────────────────────────────────
 
@@ -1281,11 +1312,7 @@ function updatePlaying(state: GameState, dt: number): void {
   }
 
   // Wind
-  state.windChangeTimer -= dt;
-  if (state.windChangeTimer <= 0) {
-    state.windX = (Math.random() - 0.5) * 60 * (1 + state.difficultyLevel * 0.15);
-    state.windChangeTimer = 4 + Math.random() * 7;
-  }
+  updateWind(state, dt);
 
   // Parallax
   state.groundOffset = (state.groundOffset + 55 * dt) % 120;
@@ -1310,6 +1337,9 @@ function updatePlaying(state: GameState, dt: number): void {
   }
   // Keep speed magnitude current even mid-traverse (difficulty ramp)
   state.travelerVX = Math.sign(state.travelerVX) * maxSpeed;
+
+  const travelerWindFactor = state.isJumping ? 0.16 : 0.045;
+  state.travelerX = clamp(state.travelerX + state.windX * travelerWindFactor * dt, margin, state.W - margin);
 
   // Traveler jumping — fires at random intervals that shrink with difficulty
   // Interval range: starts ~2–4s, tightens to ~0.6–1.4s at high levels
@@ -1363,7 +1393,9 @@ function updatePlaying(state: GameState, dt: number): void {
     h.prevX = h.x;
     h.prevY = h.y;
 
-    h.x += (h.vx + state.windX * 0.3) * dt * hazardSpeedFactor;
+    const windInfluence = h.type === 'snow' ? 1.05 : h.type === 'rain' ? 0.72 : 0.48;
+    h.vx += (state.windX * windInfluence - h.vx * 0.12) * dt;
+    h.x += h.vx * dt * hazardSpeedFactor;
     h.y += h.vy * dt * hazardSpeedFactor;
 
     // Umbrella collision - no score/combo on direct hit, particles handle scoring
@@ -1475,9 +1507,11 @@ function updateParticles(state: GameState, dt: number): void {
   for (let i = 0; i < state.particles.length; i++) {
     const p = state.particles[i]!;
     let removeParticle = false;
+    const windInfluence = p.type === 'snow' ? 1.25 : p.type === 'rain' ? 0.8 : 0.5;
+    p.vx += (state.windX * windInfluence - p.vx * 0.08) * dt;
     p.x += p.vx * dt;
     p.y += p.vy * dt;
-    p.vy += 140 * dt;
+    p.vy += (p.type === 'hail' ? 170 : 140) * dt;
     p.life -= dt / p.maxLife;
     
     // Check if particle hit the umbrella
@@ -1631,10 +1665,10 @@ function updateUmbrellaSlides(state: GameState, dt: number): void {
         s.maxLife = Math.max(s.maxLife, 0.35);
       }
     } else {
-      // Drip: fall freely with gravity, tiny outward drift
+      // Drip: fall freely with gravity and get pushed by gusts.
       s.vy += 260 * dt;
       s.y  += s.vy * dt;
-      s.x  += s.dir * 10 * dt;
+      s.x  += (s.dir * 10 + state.windX * 0.16) * dt;
     }
 
     state.umbrellaSlides[writeIndex++] = s;
@@ -1654,8 +1688,8 @@ function updateClouds(state: GameState, dt: number): void {
 
   for (let i = 0; i < state.clouds.length; i++) {
     const c = state.clouds[i]!;
-    c.x += c.vx * dt;
-    c.x += state.windX * 0.04 * dt;
+    const windPush = state.windX * (c.type === 'snow' ? 0.2 : c.type === 'rain' ? 0.15 : 0.1);
+    c.x += (c.vx + windPush) * dt;
     c.y += c.vy * dt;
     c.y = Math.max(minCloudY, Math.min(maxCloudY, c.y));
     const pad = 140;
@@ -1741,6 +1775,7 @@ function startGame(state: GameState): void {
   state.phase = 'playing';
   state.umbrellaVY = 0;
   state._umbrellaActualY = state.umbrellaY;
+  scheduleWindShift(state, true);
   if (typeof window !== 'undefined' && typeof (window as any).initParticleSystem === 'function') {
     (window as any).initParticleSystem(state);
   }
@@ -1756,6 +1791,7 @@ function restartGame(state: GameState): void {
   Object.assign(state, fresh);
   state.umbrellaVY = 0;
   state._umbrellaActualY = state.umbrellaY;
+  scheduleWindShift(state, true);
   if (typeof window !== 'undefined' && typeof (window as any).initParticleSystem === 'function') {
     (window as any).initParticleSystem(state);
   }
