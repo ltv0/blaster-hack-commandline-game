@@ -109,10 +109,7 @@ export type PowerUpType =
   | 'slowMotion'
   | 'healthBoost'
   | 'hazardClear'
-  | 'clearScreen'
-  | 'findBoost'
-  | 'pipePoints'
-  | 'killHazards';
+  | 'findBoost';
 
 export interface PowerUpPickup {
   id: number;
@@ -221,7 +218,6 @@ export interface GameState {
   doublePointsActive: boolean;
   slowMotionActive: boolean;
   findBoostActive: boolean;
-  pipePointsActive: boolean;
 
   // difficulty
   elapsed: number;
@@ -312,6 +308,10 @@ export const COLORS = {
 const GROUND_Y_RATIO = 0.91;
 const POWER_UP_THRESHOLD = 40;
 const POWER_UP_PICKUP_TTL = 12;
+const MAX_HEART_EXPLOSIONS = 120;
+const SCORE_POPUP_OVERLOAD_THRESHOLD = 24;
+const MAX_SCORE_POPUPS = 40;
+const SCORE_POPUP_MERGE_DISTANCE = 44;
 
 const POWER_UP_WEIGHTS: Array<{ type: PowerUpType; weight: number }> = [
   { type: 'shield', weight: 16 },
@@ -319,10 +319,7 @@ const POWER_UP_WEIGHTS: Array<{ type: PowerUpType; weight: number }> = [
   { type: 'slowMotion', weight: 14 },
   { type: 'healthBoost', weight: 12 },
   { type: 'hazardClear', weight: 11 },
-  { type: 'clearScreen', weight: 9 },
-  { type: 'findBoost', weight: 9 },
-  { type: 'pipePoints', weight: 8 },
-  { type: 'killHazards', weight: 5 },
+  { type: 'findBoost', weight: 10 },
 ];
 
 const POWER_UP_TEXT: Record<PowerUpType, string> = {
@@ -331,10 +328,7 @@ const POWER_UP_TEXT: Record<PowerUpType, string> = {
   slowMotion: 'SNAIL...',
   healthBoost: '+HEALTH+',
   hazardClear: '!CLEAR!',
-  clearScreen: '?CLS?',
   findBoost: '=>FIND<=',
-  pipePoints: '=PIPE=',
-  killHazards: '[KILL]',
 };
 
 // ─── Init ─────────────────────────────────────────────────────────────────────
@@ -415,7 +409,6 @@ export function createInitialState(W: number, H: number): GameState {
     doublePointsActive: false,
     slowMotionActive: false,
     findBoostActive: false,
-    pipePointsActive: false,
 
     elapsed: 0,
     difficultyLevel: 0,
@@ -630,7 +623,7 @@ function spawnSplash(
   sizeScale = 1,
   glyphOverride?: string
 ): void {
-  const count = isHit ? 10 : (type === 'hail' ? 7 : type === 'snow' ? 4 : 2);
+  const count = isHit ? 7 : (type === 'hail' ? 7 : type === 'snow' ? 4 : 2);
   let color: string;
   let glyphs: string[];
   if (type === 'hail') {
@@ -813,28 +806,91 @@ function spawnScorePopup(
   x: number, y: number,
   points: number, combo: number
 ): void {
-  const comboStr = combo > 1 ? ` x${combo}` : '';
+  const popupColor = combo >= 5 ? COLORS.comboGold : combo >= 3 ? COLORS.brightAmber : COLORS.cyan;
+  const popupText = combo > 1 ? `+${points} x${combo}` : `+${points}`;
+  const shouldMerge = state.scorePopups.length >= SCORE_POPUP_OVERLOAD_THRESHOLD;
+
+  if (shouldMerge) {
+    let nearestIdx = -1;
+    let nearestD2 = Number.POSITIVE_INFINITY;
+    const maxMergeD2 = SCORE_POPUP_MERGE_DISTANCE * SCORE_POPUP_MERGE_DISTANCE;
+
+    for (let i = 0; i < state.scorePopups.length; i++) {
+      const p = state.scorePopups[i]!;
+      if (p.life <= 0.2) continue;
+      const dx = p.x - x;
+      const dy = p.y - y;
+      const d2 = dx * dx + dy * dy;
+      if (d2 < maxMergeD2 && d2 < nearestD2) {
+        nearestD2 = d2;
+        nearestIdx = i;
+      }
+    }
+
+    if (nearestIdx >= 0) {
+      const existing = state.scorePopups[nearestIdx]!;
+      const match = /^\+(\d+)(?: x(\d+))?$/.exec(existing.text);
+      const existingPoints = match ? Number(match[1]) : 0;
+      const existingCombo = match && match[2] ? Number(match[2]) : 1;
+      const mergedPoints = existingPoints + points;
+      const mergedCombo = Math.max(existingCombo, combo);
+
+      existing.text = mergedCombo > 1 ? `+${mergedPoints} x${mergedCombo}` : `+${mergedPoints}`;
+      existing.color = mergedCombo >= 5 ? COLORS.comboGold : mergedCombo >= 3 ? COLORS.brightAmber : COLORS.cyan;
+      existing.life = Math.max(existing.life, 0.95);
+      existing.x = (existing.x + x) * 0.5;
+      existing.y = (existing.y + y) * 0.5;
+      return;
+    }
+  }
+
+  if (state.scorePopups.length >= MAX_SCORE_POPUPS) {
+    let weakestIdx = 0;
+    let weakestLife = Number.POSITIVE_INFINITY;
+    for (let i = 0; i < state.scorePopups.length; i++) {
+      const p = state.scorePopups[i]!;
+      if (p.life < weakestLife) {
+        weakestLife = p.life;
+        weakestIdx = i;
+      }
+    }
+    const reused = state.scorePopups[weakestIdx]!;
+    reused.x = x;
+    reused.y = y;
+    reused.text = popupText;
+    reused.color = popupColor;
+    reused.life = 1;
+    return;
+  }
+
   state.scorePopups.push({
     id: state.scorePopupIdCounter++,
-    x, y,
-    text: `+${points}${comboStr}`,
-    color: combo >= 5 ? COLORS.comboGold : combo >= 3 ? COLORS.brightAmber : COLORS.cyan,
+    x,
+    y,
+    text: popupText,
+    color: popupColor,
     life: 1,
   });
 }
 
-function spawnHeartExplosion(state: GameState, centerX: number, centerY: number): void {
+function spawnHeartExplosion(state: GameState, centerX: number, centerY: number, fatalHit = false): void {
   const glyphs = ['♥', '✦', '★', '✢', '●'];
-  const count = 25; // More hearts for screen-wide effect
+  const count = fatalHit ? 22 : 9;
+  const available = Math.max(0, MAX_HEART_EXPLOSIONS - state.heartExplosions.length);
+  const burstCount = Math.min(count, available);
+  if (burstCount <= 0) return;
+
+  const spreadX = fatalHit ? state.W * 0.9 : 120;
+  const spreadY = fatalHit ? state.H * 0.36 : 90;
+  const speedBase = fatalHit ? 120 : 85;
+  const speedJitter = fatalHit ? 200 : 95;
   
-  for (let i = 0; i < count; i++) {
-    // Randomize spawn point across top portion of screen
-    const spawnX = Math.random() * state.W;
-    const spawnY = Math.random() * (state.H * 0.3);
+  for (let i = 0; i < burstCount; i++) {
+    const spawnX = Math.max(0, Math.min(state.W, centerX + (Math.random() - 0.5) * spreadX));
+    const spawnY = Math.max(0, Math.min(state.H * 0.4, centerY + (Math.random() - 0.5) * spreadY));
     
-    // Create varied trajectories to fill the screen
     const angle = Math.random() * Math.PI * 2;
-    const speed = 120 + Math.random() * 200;
+    const speed = speedBase + Math.random() * speedJitter;
     
     state.heartExplosions.push({
       id: state.heartExplosionIdCounter++,
@@ -843,7 +899,7 @@ function spawnHeartExplosion(state: GameState, centerX: number, centerY: number)
       vx: Math.cos(angle) * speed,
       vy: Math.sin(angle) * speed + (Math.random() - 0.5) * 100,
       life: 1,
-      maxLife: 1.0 + Math.random() * 0.5,
+      maxLife: fatalHit ? (1.0 + Math.random() * 0.5) : (0.55 + Math.random() * 0.35),
       glyph: glyphs[Math.floor(Math.random() * glyphs.length)],
       color: COLORS.brightRed,
     });
@@ -864,11 +920,8 @@ function powerUpDuration(type: PowerUpType): number {
     case 'doublePoints': return 10;
     case 'slowMotion': return 8;
     case 'findBoost': return 6;
-    case 'pipePoints': return 5;
     case 'healthBoost': return 1.3;
     case 'hazardClear': return 1.1;
-    case 'clearScreen': return 1.1;
-    case 'killHazards': return 1.1;
     default: return 1.2;
   }
 }
@@ -887,38 +940,9 @@ function clearHazards(state: GameState): void {
   state.hazards.length = 0;
 }
 
-function clearScreen(state: GameState): void {
-  state.hazards.length = 0;
-  state.powerUpPickups.length = 0;
-}
-
 function restoreHealth(state: GameState): void {
   const boost = Math.ceil(state.maxHp * 0.5);
   state.hp = Math.min(state.maxHp, state.hp + boost);
-}
-
-function killRandomHazard(state: GameState): void {
-  if (state.hazards.length === 0) return;
-  const idx = Math.floor(Math.random() * state.hazards.length);
-  state.hazards.splice(idx, 1);
-}
-
-function moveNearestPickupTowardTraveler(state: GameState): void {
-  if (state.powerUpPickups.length === 0) return;
-  let nearest = state.powerUpPickups[0]!;
-  let bestD2 = Number.POSITIVE_INFINITY;
-  for (const p of state.powerUpPickups) {
-    const dx = p.x - state.travelerX;
-    const dy = p.y - state.travelerY;
-    const d2 = dx * dx + dy * dy;
-    if (d2 < bestD2) {
-      bestD2 = d2;
-      nearest = p;
-    }
-  }
-  nearest.x = state.travelerX + (Math.random() < 0.5 ? -1 : 1) * 38;
-  nearest.y = state.travelerY - 30;
-  nearest.baseY = nearest.y;
 }
 
 function resetTimedPowerUps(state: GameState): void {
@@ -926,7 +950,6 @@ function resetTimedPowerUps(state: GameState): void {
   state.doublePointsActive = false;
   state.slowMotionActive = false;
   state.findBoostActive = false;
-  state.pipePointsActive = false;
 }
 
 function activatePowerUp(state: GameState, type: PowerUpType): void {
@@ -949,22 +972,12 @@ function activatePowerUp(state: GameState, type: PowerUpType): void {
       break;
     case 'findBoost':
       state.findBoostActive = true;
-      moveNearestPickupTowardTraveler(state);
-      break;
-    case 'pipePoints':
-      state.pipePointsActive = true;
       break;
     case 'healthBoost':
       restoreHealth(state);
       break;
     case 'hazardClear':
       clearHazards(state);
-      break;
-    case 'clearScreen':
-      clearScreen(state);
-      break;
-    case 'killHazards':
-      killRandomHazard(state);
       break;
   }
 
@@ -977,7 +990,7 @@ function maybeSpawnComboPowerUp(state: GameState): void {
   const type = chooseRandomPowerUp();
   const margin = Math.max(40, Math.min(120, state.W * 0.12));
   const x = margin + Math.random() * Math.max(1, state.W - margin * 2);
-  const y = state.travelerBaseY - (26 + Math.random() * 46);
+  const y = state.travelerBaseY - (8 + Math.random() * 16);
 
   state.powerUpPickups.push({
     id: state.powerUpPickupIdCounter++,
@@ -1005,10 +1018,10 @@ function updatePowerUpPickups(state: GameState, dt: number): void {
 
     if (state.findBoostActive) {
       const dx = state.travelerX - pickup.x;
-      const dy = (state.travelerY - 24) - pickup.y;
+      const dy = (state.travelerY + 8) - pickup.y;
       const d = Math.hypot(dx, dy);
       if (d > 0.001) {
-        const pull = Math.min(150 * dt, d);
+        const pull = Math.min(280 * dt, d);
         pickup.x += (dx / d) * pull;
         pickup.y += (dy / d) * pull;
         pickup.baseY = pickup.y;
@@ -1341,21 +1354,17 @@ function updatePlaying(state: GameState, dt: number): void {
     if (!removeHazard && !h.blocked) {
       const dx = Math.abs(h.x - state.travelerX);
       if (dx < 22 && h.y >= state.travelerY - 8 && h.y <= state.travelerY + 38) {
-        if (state.pipePointsActive) {
-          const converted = scoreWithModifiers(state, h.type === 'hail' ? 20 : h.type === 'snow' ? 12 : 8);
-          state.score += converted;
-          spawnScorePopup(state, h.x, h.y - 8, converted, Math.max(1, state.combo));
-          state.audioEvents.push({ kind: 'block', hazardType: h.type });
-        } else if (!state.shieldActive && state.hitCooldown <= 0) {
+        if (!state.shieldActive && state.hitCooldown <= 0) {
           let damage = 1;
           if (h.type === 'hail') damage = 2;
+          const willDie = state.hp - damage <= 0;
           state.hp = Math.max(0, state.hp - damage);
           state.hitCooldown = 1.2;
           state.deathFlash = 1.2;
           state.combo = 0;
           state.comboTimer = 0;
           spawnSplash(state, h.x, h.y, h.type, true, 1, h.glyph);
-          spawnHeartExplosion(state, state.W / 2 + 55, state.H * 0.05);
+          spawnHeartExplosion(state, h.x, h.y - 12, willDie);
           state.audioEvents.push({ kind: 'hit' });
           if (state.hp <= 0) {
             state.phase = 'dead';
