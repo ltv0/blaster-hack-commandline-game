@@ -103,7 +103,7 @@ export interface Cloud {
   // width in pixels (written by renderer so spawn x is accurate)
   artW: number;
   // emit points (relative to cloud center) sampled from visible cloud topology
-  emitPoints: Array<{ dx: number; dy: number }>;
+  emitPoints: Array<{ dx: number; dy: number; pType?: 'rain' | 'snow' | 'hail' }>;
 }
 
 export type PowerUpType =
@@ -315,6 +315,12 @@ const MAX_HEART_EXPLOSIONS = 120;
 const SCORE_POPUP_OVERLOAD_THRESHOLD = 24;
 const MAX_SCORE_POPUPS = 40;
 const SCORE_POPUP_MERGE_DISTANCE = 44;
+const SCORE_POPUP_CLUSTER_X = 80;
+const SCORE_POPUP_CLUSTER_Y = 40;
+const SCORE_POPUP_STACK_STEP_Y = 14;
+const SCORE_POPUP_STACK_OFFSETS = [0, -12, 12, -20, 20, -28, 28];
+const SCORE_POPUP_MIN_DISTANCE_X = 54;
+const SCORE_POPUP_MIN_DISTANCE_Y = 18;
 
 const POWER_UP_WEIGHTS: Array<{ type: PowerUpType; weight: number }> = [
   { type: 'shield', weight: 16 },
@@ -591,17 +597,17 @@ function spawnHazardFromCloud(state: GameState, cloud: Cloud): void {
 
   const x = cloud.x + p.dx;
   const y = cloud.y + p.dy;
-
+  const hazardType = p.pType ?? cloud.type;
   let glyph: string;
-  if (cloud.type === 'rain') {
-    // Old weighted-array math hit a divide-by-zero at high levels and overflowed.
+  if (hazardType === 'rain') {
+    // Keep rain glyph selection stable at higher levels without weighted overflows.
     const catDogChance = Math.min(0.9, Math.max(0, 0.2 * (level - 1)));
     const useAnimalGlyph = level >= 2 && Math.random() < catDogChance;
     glyph = useAnimalGlyph
       ? (Math.random() < 0.5 ? CAT_GLYPH : DOG_GLYPH)
       : (Math.random() < 0.5 ? '|' : '/');
   } else {
-    const glyphs = HAZARD_GLYPHS[cloud.type];
+    const glyphs = HAZARD_GLYPHS[hazardType];
     if (!glyphs || glyphs.length === 0) return;
     glyph = glyphs[Math.floor(Math.random() * glyphs.length)]!;
   }
@@ -609,7 +615,7 @@ function spawnHazardFromCloud(state: GameState, cloud: Cloud): void {
   const speedBase = 90 + level * 18 + elapsed * 0.4;
   const vy = speedBase * (0.8 + Math.random() * 0.4);
   const vx = (Math.random() - 0.5) * speedBase * 0.22 + state.windX * 0.5;
-  const size = cloud.type === 'hail'
+  const size = hazardType === 'hail'
     ? 0.9 + Math.random() * 0.4
     : 0.7 + Math.random() * 0.3;
 
@@ -621,7 +627,7 @@ function spawnHazardFromCloud(state: GameState, cloud: Cloud): void {
     prevY: y,
     vx,
     vy,
-    type: cloud.type,
+    type: hazardType,
     glyph,
     blocked: false,
     size,
@@ -872,10 +878,24 @@ function spawnScorePopup(
       existing.color = mergedCombo >= 5 ? COLORS.comboGold : mergedCombo >= 3 ? COLORS.brightAmber : COLORS.cyan;
       existing.life = Math.max(existing.life, 0.95);
       existing.x = (existing.x + x) * 0.5;
-      existing.y = (existing.y + y) * 0.5;
+      existing.y = Math.min(existing.y, y - 8);
       return;
     }
   }
+
+  let nearbyCount = 0;
+  for (let i = 0; i < state.scorePopups.length; i++) {
+    const p = state.scorePopups[i]!;
+    if (p.life <= 0.2) continue;
+    if (Math.abs(p.x - x) <= SCORE_POPUP_CLUSTER_X && Math.abs(p.y - y) <= SCORE_POPUP_CLUSTER_Y) {
+      nearbyCount++;
+    }
+  }
+
+  const stackOffset = SCORE_POPUP_STACK_OFFSETS[nearbyCount % SCORE_POPUP_STACK_OFFSETS.length] ?? 0;
+  const layer = Math.floor(nearbyCount / SCORE_POPUP_STACK_OFFSETS.length);
+  const spawnX = Math.max(14, Math.min(state.W - 14, x + stackOffset));
+  const spawnY = Math.max(26, y - layer * SCORE_POPUP_STACK_STEP_Y);
 
   if (state.scorePopups.length >= MAX_SCORE_POPUPS) {
     let weakestIdx = 0;
@@ -888,8 +908,8 @@ function spawnScorePopup(
       }
     }
     const reused = state.scorePopups[weakestIdx]!;
-    reused.x = x;
-    reused.y = y;
+    reused.x = spawnX;
+    reused.y = spawnY;
     reused.text = popupText;
     reused.color = popupColor;
     reused.life = 1;
@@ -898,8 +918,8 @@ function spawnScorePopup(
 
   state.scorePopups.push({
     id: state.scorePopupIdCounter++,
-    x,
-    y,
+    x: spawnX,
+    y: spawnY,
     text: popupText,
     color: popupColor,
     life: 1,
@@ -1540,23 +1560,59 @@ function updateParticles(state: GameState, dt: number): void {
 }
 
 function updateHeartExplosions(state: GameState, dt: number): void {
-  for (let i = state.heartExplosions.length - 1; i >= 0; i--) {
-    const h = state.heartExplosions[i];
+  let writeIndex = 0;
+  for (let i = 0; i < state.heartExplosions.length; i++) {
+    const h = state.heartExplosions[i]!;
     h.x += h.vx * dt;
     h.y += h.vy * dt;
     h.vy += 200 * dt; // gravity
     h.life -= dt / h.maxLife;
-    
-    if (h.life <= 0) state.heartExplosions.splice(i, 1);
+
+    if (h.life > 0) {
+      state.heartExplosions[writeIndex++] = h;
+    }
   }
+  state.heartExplosions.length = writeIndex;
 }
 
 function updateScorePopups(state: GameState, dt: number): void {
-  for (let i = state.scorePopups.length - 1; i >= 0; i--) {
-    const p = state.scorePopups[i];
-    p.y -= 30 * dt;
+  let writeIndex = 0;
+  for (let i = 0; i < state.scorePopups.length; i++) {
+    const p = state.scorePopups[i]!;
+    const riseSpeed = 26 + (1 - p.life) * 18;
+    p.y -= riseSpeed * dt;
     p.life -= dt * 1.6;
-    if (p.life <= 0) state.scorePopups.splice(i, 1);
+    if (p.life > 0) {
+      state.scorePopups[writeIndex++] = p;
+    }
+  }
+  state.scorePopups.length = writeIndex;
+
+  // Keep nearby popup labels readable by gently separating overlapping entries.
+  for (let i = 0; i < writeIndex; i++) {
+    const a = state.scorePopups[i]!;
+    for (let j = i + 1; j < writeIndex; j++) {
+      const b = state.scorePopups[j]!;
+      const dx = b.x - a.x;
+      const dy = b.y - a.y;
+      const overlapX = SCORE_POPUP_MIN_DISTANCE_X - Math.abs(dx);
+      const overlapY = SCORE_POPUP_MIN_DISTANCE_Y - Math.abs(dy);
+      if (overlapX <= 0 || overlapY <= 0) continue;
+
+      const pushX = overlapX * 0.5;
+      const pushY = overlapY * 0.5;
+      const dirX = dx >= 0 ? 1 : -1;
+      const dirY = dy >= 0 ? 1 : -1;
+
+      a.x -= dirX * pushX;
+      b.x += dirX * pushX;
+      // Bias the separation upward so labels naturally stack.
+      a.y -= Math.max(1, pushY * 0.55);
+      b.y += dirY * Math.max(1, pushY * 0.45);
+    }
+
+    a.x = Math.max(10, Math.min(state.W - 10, a.x));
+    a.y = Math.max(18, a.y);
   }
 }
 
@@ -1568,10 +1624,11 @@ function updateUmbrellaSlides(state: GameState, dt: number): void {
   const peakY      = umbrellaArtStartY + 1 * umbrellaArtLineH;
   const rimY       = umbrellaArtStartY + (UMBRELLA_CANOPY_LINES - 1) * umbrellaArtLineH;
 
-  for (let i = state.umbrellaSlides.length - 1; i >= 0; i--) {
-    const s = state.umbrellaSlides[i];
+  let writeIndex = 0;
+  for (let i = 0; i < state.umbrellaSlides.length; i++) {
+    const s = state.umbrellaSlides[i]!;
     s.life -= dt / s.maxLife;
-    if (s.life <= 0) { state.umbrellaSlides.splice(i, 1); continue; }
+    if (s.life <= 0) continue;
 
     if (s.phase === 'slide') {
       if (halfW > 0) {
@@ -1604,7 +1661,10 @@ function updateUmbrellaSlides(state: GameState, dt: number): void {
       s.y  += s.vy * dt;
       s.x  += s.dir * 10 * dt;
     }
+
+    state.umbrellaSlides[writeIndex++] = s;
   }
+  state.umbrellaSlides.length = writeIndex;
 }
 
 function updateClouds(state: GameState, dt: number): void {
@@ -1614,8 +1674,11 @@ function updateClouds(state: GameState, dt: number): void {
   const updateStart = (typeof performance !== 'undefined' && performance.now) ? performance.now() : Date.now();
   let totalBursts = 0;
   let totalHazardsSpawned = 0;
-  for (let i = state.clouds.length - 1; i >= 0; i--) {
-    const c = state.clouds[i];
+  const respawns: Array<{ spawnX: number; type: Cloud['type'] }> = [];
+  let writeIndex = 0;
+
+  for (let i = 0; i < state.clouds.length; i++) {
+    const c = state.clouds[i]!;
     c.x += c.vx * dt;
     c.x += state.windX * 0.04 * dt;
     c.y += c.vy * dt;
@@ -1625,9 +1688,7 @@ function updateClouds(state: GameState, dt: number): void {
     const exitedLeft = c.vx < 0 && c.x < -pad;
     if (exitedRight || exitedLeft) {
       const spawnX = exitedRight ? -pad : W + pad;
-      const nextType = c.type;
-      state.clouds.splice(i, 1);
-      spawnCloud(state, spawnX, nextType);
+      respawns.push({ spawnX, type: c.type });
       continue;
     }
     if (c.flashTimer > 0) c.flashTimer = Math.max(0, c.flashTimer - dt);
@@ -1646,6 +1707,14 @@ function updateClouds(state: GameState, dt: number): void {
         totalHazardsSpawned++;
       }
     }
+
+    state.clouds[writeIndex++] = c;
+  }
+
+  state.clouds.length = writeIndex;
+  for (let i = 0; i < respawns.length; i++) {
+    const respawn = respawns[i]!;
+    spawnCloud(state, respawn.spawnX, respawn.type);
   }
   const updateEnd = (typeof performance !== 'undefined' && performance.now) ? performance.now() : Date.now();
   if (typeof window !== 'undefined' && (window as any).__DEBUG_GAME__ && ((updateEnd - updateStart) > 2 || totalBursts > 0)) {

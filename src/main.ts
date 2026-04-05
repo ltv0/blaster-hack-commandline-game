@@ -28,6 +28,9 @@ let dpr = window.devicePixelRatio || 1;
 let W = 0;
 let H = 0;
 const GROUND_Y_RATIO = 0.91;
+const CLOUD_ART_LINES = 4;
+let frameBgGradient: CanvasGradient | null = null;
+let frameBgGradientHeight = -1;
 
 function resize(): void {
   dpr = window.devicePixelRatio || 1;
@@ -162,6 +165,23 @@ let bgHoverY = 0;
 let bgHoverTargetX = 0;
 let bgHoverTargetY = 0;
 
+let skyTextNormalized = '';
+let skyTextStream = '';
+let skyTextStreamTargetLen = 0;
+
+function rebuildSkyTextStream(minLen: number): void {
+  skyTextNormalized = SKY_TEXT ? `${SKY_TEXT.replace(/\s+/g, ' ').trim()} ` : '';
+  if (skyTextNormalized.length === 0) {
+    skyTextStream = '';
+    skyTextStreamTargetLen = 0;
+    return;
+  }
+  const targetLen = Math.max(1, minLen);
+  const repetitions = Math.ceil(targetLen / skyTextNormalized.length) + 1;
+  skyTextStream = skyTextNormalized.repeat(repetitions);
+  skyTextStreamTargetLen = targetLen;
+}
+
 function buildAsciiBackground(): void {
   const size = sz(W / 95, 15, 15);
   bgFont = fnt(size);
@@ -179,6 +199,7 @@ function buildAsciiBackground(): void {
       changeInterval: 2.5 + Math.random() * 9,
     }));
   }
+  if (needed !== skyTextStreamTargetLen) rebuildSkyTextStream(needed);
   bgHoverX = W * 0.5;
   bgHoverY = H * 0.45;
   bgHoverTargetX = bgHoverX;
@@ -316,15 +337,7 @@ function drawAsciiBackground(
   const hoverBoost = 0.42 + 0.14 * Math.sin(bgHoverPulse);
   // Glow width: how many px from a slot edge counts as "near the wrap"
   const glowWidth = bgCellW * 1.0;  // tight glow — only 1 char from the edge
-
-  // Stream of Lorem Ipsum characters (or fallback to random chars if not loaded)
-  let textChars = SKY_TEXT ? (SKY_TEXT.replace(/\s+/g, ' ').trim() + ' ') : '';
-  
-  // Ensure text repeats by duplicating if necessary (fill to at least bgCells.length)
-  if (textChars.length > 0 && textChars.length < bgCells.length) {
-    const repetitions = Math.ceil(bgCells.length / textChars.length) + 1;
-    textChars = textChars.repeat(repetitions);
-  }
+  const textChars = skyTextStream;
 
   for (let row = 0; row < bgRows; row++) {
     const y = row * bgCellH - scrolledY;
@@ -353,18 +366,26 @@ function drawAsciiBackground(
       if (interval !== null) blocked.push(interval);
     }
 
+    const mergedBlocked = blocked.length > 1 ? mergeBlockedIntervals(blocked, 0, W) : blocked;
     // Carve open slots from [0, W]
-    const slots = carveTextLineSlots({ left: 0, right: W }, blocked);
+    const slots = carveTextLineSlots({ left: 0, right: W }, mergedBlocked);
     if (slots.length === 0) continue;
 
+    let slotIndex = 0;
     for (let col = 0; col < bgCols; col++) {
       const x = col * bgCellW;
       const idx = row * bgCols + col;
       if (idx >= bgCells.length) continue;
 
       // True wrap: only draw if this glyph's x falls inside an open slot
-      const slotResult = glyphSlotResult(x, slots, glowWidth);
-      if (!slotResult.inSlot) continue;
+      while (slotIndex < slots.length && x > slots[slotIndex]!.right) slotIndex++;
+      const slot = slots[slotIndex];
+      if (!slot || x < slot.left || x > slot.right) continue;
+
+      const distLeft = x - slot.left;
+      const distRight = slot.right - x;
+      const edgeDist = Math.min(distLeft, distRight);
+      const wrapT = Math.max(0, 1 - edgeDist / glowWidth);
 
       const cell = bgCells[idx]!;
       const pulse = 0.72 + 0.28 * (0.5 + 0.5 * Math.sin(cell.phase));
@@ -405,7 +426,7 @@ function drawAsciiBackground(
       const alpha = baseAlpha * pulse
         * (1.2 + hoverT * hoverBoost)
         * (1 + Math.min(0.35, objectBoost * 0.12))
-        * (1 + slotResult.wrapT * 0.55);   // edge glow: up to +55% brightness
+        * (1 + wrapT * 0.55);   // edge glow: up to +55% brightness
 
       if (alpha < 0.004) continue;
       
@@ -578,20 +599,16 @@ function loop(ts: number): void {
 function updateUmbrellaPhysics(s: GameState, dt: number): void {
   if (s.phase !== 'playing') return;
 
-  let cloudCeiling = Infinity;
   let pressureForce = 0;
+  const size = Math.max(9, Math.min(14, s.W / 75)) * WEATHER_FONT_SCALE;
+  const lineH = Math.round(size * 1.35);
+  const hudH = Math.max(10, Math.min(14, s.W / 70)) + 20;
+  const startYFloor = hudH + 6;
+  const cloudArtHeight = CLOUD_ART_LINES * lineH;
 
   for (const cloud of s.clouds) {
-    const size = Math.max(9, Math.min(14, s.W / 75)) * WEATHER_FONT_SCALE;
-    const lineH = Math.round(size * 1.35);
-
-    const hudH = Math.max(10, Math.min(14, s.W / 70)) + 20;
-    const startY = Math.max(hudH + 6, cloud.y);
-
-    const lines = getCloudLines(cloud, s.elapsed);
-    const bottom = startY + lines.length * lineH;
-
-    cloudCeiling = Math.min(cloudCeiling, bottom);
+    const startY = Math.max(startYFloor, cloud.y);
+    const bottom = startY + cloudArtHeight;
 
     if (s._umbrellaActualY !== undefined) {
       const dist = s._umbrellaActualY - bottom;
@@ -656,11 +673,15 @@ function updateUmbrellaPhysics(s: GameState, dt: number): void {
 
 // ─── Draw dispatcher ──────────────────────────────────────────────────────────
 function draw(s: GameState): void {
-  const grad = ctx.createLinearGradient(0, 0, 0, H);
-  grad.addColorStop(0,   '#050d18');
-  grad.addColorStop(0.55,'#0a1727');
-  grad.addColorStop(1,   '#122438');
-  ctx.fillStyle = grad;
+  if (!frameBgGradient || frameBgGradientHeight !== H) {
+    const grad = ctx.createLinearGradient(0, 0, 0, H);
+    grad.addColorStop(0,   '#050d18');
+    grad.addColorStop(0.55,'#0a1727');
+    grad.addColorStop(1,   '#122438');
+    frameBgGradient = grad;
+    frameBgGradientHeight = H;
+  }
+  ctx.fillStyle = frameBgGradient;
   ctx.fillRect(0, 0, W, H);
   if (s.phase === 'boot') { drawBoot(s); }
   else { drawGame(s); if (s.phase === 'dead') drawGameOver(s); }
@@ -729,11 +750,13 @@ async function loadSkyText(): Promise<void> {
     const res = await fetch(url);
     if (res.ok) {
       SKY_TEXT = await res.text();
+      rebuildSkyTextStream(bgCells.length);
       return;
     }
   } catch (e) {
     // ignore and keep fallback
   }
+  rebuildSkyTextStream(bgCells.length);
 }
 
 let skyGrid: string[] = [];
@@ -1329,7 +1352,7 @@ function updateCloudEmitPoints(s: GameState): void {
       continue;
     }
 
-    const reduced: Array<{ dx: number; dy: number }> = [];
+    const reduced: Array<{ dx: number; dy: number; pType?: ParticleType }> = [];
     const step = emitPoints.length / CLOUD_EMIT_MAX_POINTS;
     for (let i = 0; i < CLOUD_EMIT_MAX_POINTS; i++) {
       reduced.push(emitPoints[Math.floor(i * step)]!);
@@ -1409,11 +1432,20 @@ function drawClouds(s: GameState): void {
   const fieldCellW = CANVAS_W / cols;
   const fieldCellH = CANVAS_H / rows;
 
+  const drawCloudRun = (text: string, runType: ParticleType | 'mixed' | undefined, x: number, y: number): void => {
+    if (text.length === 0) return;
+    const color = runType === 'snow' ? COLORS.cloudSnow : runType === 'hail' ? COLORS.cloudHail : COLORS.cloudRain;
+    const glowFactor = runType === 'snow' ? 0.9 : runType === 'hail' ? 0.6 : 1.0;
+    const glowBlur = Math.max(6, Math.round(size * 1.6 * glowFactor));
+    const block = renderer.getBlock(text, f, lineH);
+    renderer.drawBlock(ctx, block, x, y, { color, shadowColor: color, shadowBlur: glowBlur, alpha: 0.6 });
+    renderer.drawBlock(ctx, block, x, y, { color, alpha: 1 });
+  };
+
   for (let r = 0; r < rows; r++) {
-    const skyRow = ' '.repeat(cols);
-  let cloudLine = '';
-  let hasCloud = false;
-  const pTypeArr: Array<ParticleType | undefined> = [];
+    let cloudLine = '';
+    let hasCloud = false;
+    const pTypeArr: Array<ParticleType | 'mixed' | undefined> = [];
 
     for (let c = 0; c < cols; c++) {
       const fx = Math.min(CANVAS_W - 1, (c + 0.5) * fieldCellW);
@@ -1437,12 +1469,13 @@ function drawClouds(s: GameState): void {
         }
       }
 
+      const drawType: ParticleType | 'mixed' = pType ?? 'mixed';
       const charset = (pType ? CLOUD_CHARSETS[pType] : CLOUD_CHARSET) || CLOUD_CHARSET;
       const adjusted = Math.sqrt(brightness);
       const idx = Math.min(Math.max(Math.floor(adjusted * (charset.length - 1)), 0), charset.length - 1);
-      const ch = charset[idx] || ' ';
+      const ch = charset[idx] && charset[idx] !== ' ' ? charset[idx] : '.';
       cloudLine += ch;
-      pTypeArr.push(pType);
+      pTypeArr.push(drawType);
     }
 
     // Draw cloud overlay runs with per-type colors. We group contiguous
@@ -1458,12 +1491,7 @@ function drawClouds(s: GameState): void {
           if (runStart !== -1) {
             const substr = cloudLine.slice(runStart, i);
             const x = startX + runStart * charW;
-            const color = runType === 'snow' ? COLORS.cloudSnow : runType === 'hail' ? COLORS.cloudHail : COLORS.cloudRain;
-            const glowFactor = runType === 'snow' ? 0.9 : runType === 'hail' ? 0.6 : 1.0;
-            const glowBlur = Math.max(6, Math.round(size * 1.6 * glowFactor));
-            const block = renderer.getBlock(substr, f, lineH);
-            renderer.drawBlock(ctx, block, x, startY + r * lineH, { color, shadowColor: color, shadowBlur: glowBlur, alpha: 0.6 });
-            renderer.drawBlock(ctx, block, x, startY + r * lineH, { color, alpha: 1 });
+            drawCloudRun(substr, runType, x, startY + r * lineH);
             runStart = -1; runType = undefined;
           }
           continue;
@@ -1476,12 +1504,7 @@ function drawClouds(s: GameState): void {
           // flush previous run
           const substr = cloudLine.slice(runStart, i);
           const x = startX + runStart * charW;
-          const color = runType === 'snow' ? COLORS.cloudSnow : runType === 'hail' ? COLORS.cloudHail : COLORS.cloudRain;
-          const glowFactor = runType === 'snow' ? 0.9 : runType === 'hail' ? 0.6 : 1.0;
-          const glowBlur = Math.max(6, Math.round(size * 1.6 * glowFactor));
-          const block = renderer.getBlock(substr, f, lineH);
-          renderer.drawBlock(ctx, block, x, startY + r * lineH, { color, shadowColor: color, shadowBlur: glowBlur, alpha: 0.6 });
-          renderer.drawBlock(ctx, block, x, startY + r * lineH, { color, alpha: 1 });
+          drawCloudRun(substr, runType, x, startY + r * lineH);
           // start new
           runStart = i;
           runType = t;
@@ -1491,12 +1514,7 @@ function drawClouds(s: GameState): void {
       if (runStart !== -1) {
         const substr = cloudLine.slice(runStart, cols);
         const x = startX + runStart * charW;
-        const color = runType === 'snow' ? COLORS.cloudSnow : runType === 'hail' ? COLORS.cloudHail : COLORS.cloudRain;
-        const glowFactor = runType === 'snow' ? 0.9 : runType === 'hail' ? 0.6 : 1.0;
-        const glowBlur = Math.max(6, Math.round(size * 1.6 * glowFactor));
-        const block = renderer.getBlock(substr, f, lineH);
-        renderer.drawBlock(ctx, block, x, startY + r * lineH, { color, shadowColor: color, shadowBlur: glowBlur, alpha: 0.6 });
-        renderer.drawBlock(ctx, block, x, startY + r * lineH, { color, alpha: 1 });
+        drawCloudRun(substr, runType, x, startY + r * lineH);
       }
     }
   }
@@ -1590,16 +1608,6 @@ function drawTraveler(s: GameState): void {
   const glow = s.hitCooldown > 0 ? COLORS.brightRed : airborne ? COLORS.brightAmber : COLORS.brightGreen;
   const wobble = !airborne && speedFrac > 0.7 ? Math.sin(Date.now() / 55) * 1.5 : 0;
   const tx = s.travelerX + wobble;
-
-  if (airborne && s.travelerBaseY) {
-    const rise = s.travelerBaseY - s.travelerY;
-    const maxRise = s.H * 0.20;
-    const t = Math.max(0, 1 - rise / maxRise);
-    const shadowF = fnt(Math.max(6, size * (0.5 + t * 0.8)));
-    const shadowGlyph = t > 0.7 ? '(_____)' : t > 0.4 ? '(___)' : t > 0.15 ? '(_)' : '.';
-    const sBlock = renderer.getBlock(shadowGlyph, shadowF, size * 1.3);
-    renderer.drawBlock(ctx, sBlock, tx, s.travelerBaseY + size * 2.6, { color: COLORS.dim, align: 'center', alpha: t * 0.5 });
-  }
 
   const headStr = airborne ? '(>o<)' : TRAVELER_HEADS[tFrame];
   const headBlock = renderer.getBlock(headStr, f, lh);
@@ -1923,7 +1931,27 @@ function drawScorePopups(s: GameState): void {
   for (const p of s.scorePopups) {
     const alpha = Math.min(1, p.life * 1.5);
     const block = renderer.getBlock(p.text, f, size * 1.3);
-    renderer.drawBlock(ctx, block, p.x, p.y, { color: p.color, shadowColor: p.color, shadowBlur: 12, align: 'center', verticalAlign: 'middle', alpha });
+    const padX = Math.max(5, size * 0.45);
+    const padY = Math.max(2, size * 0.2);
+    const bgX = p.x - block.width / 2 - padX;
+    const bgY = p.y - block.height / 2 - padY;
+    const bgW = block.width + padX * 2;
+    const bgH = block.height + padY * 2;
+    ctx.save();
+    ctx.fillStyle = 'rgba(4, 10, 16, 0.74)';
+    ctx.globalAlpha = alpha;
+    ctx.fillRect(bgX, bgY, bgW, bgH);
+    ctx.restore();
+    renderer.drawBlock(ctx, block, p.x, p.y, {
+      color: p.color,
+      shadowColor: p.color,
+      shadowBlur: 14,
+      strokeColor: '#060b11',
+      strokeWidth: 2,
+      align: 'center',
+      verticalAlign: 'middle',
+      alpha,
+    });
   }
 }
 
