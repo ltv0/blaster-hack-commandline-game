@@ -1922,14 +1922,15 @@ function drawPowerUpEffects(s: GameState): void {
     ctx.restore();
   }
 
-  if (s.shieldActive) {
-    const label = 'SHIELD';
+  if (s.shieldActive || s.shieldInvulnerabilityTimer > 0) {
+    const label = s.shieldInvulnerabilityTimer > 0 ? 'SHIELD BROKEN' : 'SHIELD';
     const size = sz(W / 70, 10, 14);
     const yBob = Math.sin(s.elapsed * 6) * 6;
     const shieldY = s.travelerY - size * 1.9 + yBob;
+    const color = s.shieldInvulnerabilityTimer > 0 ? '#c0c0c0' : COLORS.cyan;
     renderer.drawText(ctx, label, fnt(size, 700), size * 1.3, s.travelerX, shieldY, {
-      color: COLORS.cyan,
-      shadowColor: COLORS.cyan,
+      color: color,
+      shadowColor: color,
       shadowBlur: 14,
       align: 'center',
       verticalAlign: 'middle',

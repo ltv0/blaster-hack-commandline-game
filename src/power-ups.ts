@@ -76,7 +76,7 @@ export function powerUpLabel(type: PowerUpType): string {
 
 function powerUpDuration(type: PowerUpType): number {
   switch (type) {
-    case 'zip': return 5;
+    case 'zip': return 1;
     case 'sudo': return 10;
     case 'shield': return 5;
     case 'doublePoints': return 10;
@@ -138,6 +138,9 @@ function setTimedPowerUpState(state: GameState, type: PowerUpType, active: boole
   switch (type) {
     case 'shield':
       state.shieldActive = active;
+      if (!active) {
+        state.shieldInvulnerabilityTimer = 0; // Reset invulnerability when shield deactivates
+      }
       break;
     case 'doublePoints':
       state.doublePointsActive = active;
@@ -149,7 +152,7 @@ function setTimedPowerUpState(state: GameState, type: PowerUpType, active: boole
       state.findBoostActive = active;
       break;
     case 'zip':
-      state.speedBoostActive = active;
+      state.invincibilityActive = active;
       break;
     case 'sudo':
       state.invincibilityActive = active;

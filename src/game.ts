@@ -243,6 +243,7 @@ export interface GameState {
   powerUpTextTimer: number;
   powerUpFlashTimer: number;
   shieldActive: boolean;
+  shieldInvulnerabilityTimer: number;
   doublePointsActive: boolean;
   slowMotionActive: boolean;
   findBoostActive: boolean;
@@ -420,6 +421,7 @@ export function createInitialState(W: number, H: number): GameState {
     powerUpTextTimer: 0,
     powerUpFlashTimer: 0,
     shieldActive: false,
+    shieldInvulnerabilityTimer: 0,
     doublePointsActive: false,
     slowMotionActive: false,
     findBoostActive: false,
@@ -528,11 +530,16 @@ export function computeUmbrellaYBounds(state: Pick<GameState, 'W' | 'H' | 'cloud
   }
 
   const groundY = Math.round(state.H * GROUND_Y_RATIO);
-  const visibleCloudGap = Math.max(isPortrait ? 24 : 8, Math.round(umbrellaLineH * (isPortrait ? 2.5 : 1.15)));
+  const visibleCloudGap = Math.max(isPortrait ? 36 : 8, Math.round(umbrellaLineH * (isPortrait ? 3.5 : 1.15)));
+  
+  // Ensure minimum clearance from top of screen (accounting for HUD)
+  const hudH = getGameHudBarHeight(state);
+  const minScreenClearance = hudH + (isPortrait ? state.H * 0.18 : state.H * 0.20);
+  
   return {
     // umbrellaY maps to one line below the rendered top (startY = umbrellaY - lineH).
-    // Stay below the lowest visible cloud with extra portrait clearance.
-    minY: Math.max(0, lowestCloudBottom + umbrellaLineH + visibleCloudGap),
+    // Stay below the lowest visible cloud with extra portrait clearance, but never too close to top
+    minY: Math.max(minScreenClearance, lowestCloudBottom + umbrellaLineH + visibleCloudGap),
     // bottom of the rendered umbrella sits (totalLines - 1) lines below umbrellaY
     maxY: groundY - umbrellaLineH * (totalUmbrellaLines - 2),
   };
@@ -1339,7 +1346,9 @@ function updatePlaying(state: GameState, dt: number): void {
   const levelSpeed = 120 + Math.sqrt(state.difficultyLevel) * 24;
   const timeSpeedBoost = Math.min(140, state.elapsed * 2.2);
   const speedBoostFactor = state.speedBoostActive ? 1.5 : 1;
-  const maxSpeed = Math.min(420, (levelSpeed + timeSpeedBoost) * speedBoostFactor);
+  // Scale speed based on screen width to maintain consistent feel across devices
+  const screenWidthScale = Math.max(0.6, Math.min(1.2, state.W / 800));
+  const maxSpeed = Math.min(420, (levelSpeed + timeSpeedBoost) * speedBoostFactor * screenWidthScale);
   state.travelerMaxSpeed = maxSpeed;
   if (state.travelerVX === 0) state.travelerVX = maxSpeed; // start moving on game begin
 
@@ -1403,6 +1412,7 @@ function updatePlaying(state: GameState, dt: number): void {
   updateClouds(state, dt);
 
   // Update hazards
+  updatePowerUpPickups(state, dt, powerUpRuntime);
   const groundY = computeGroundY(state);
   const hazardSpeedFactor = state.slowMotionActive ? 0.5 : 1;
   let hazardWriteIndex = 0;
@@ -1456,15 +1466,28 @@ function updatePlaying(state: GameState, dt: number): void {
       const dx = Math.abs(h.x - state.travelerX);
       if (dx < 22 && h.y >= state.travelerY - 8 && h.y <= state.travelerY + 38) {
         if (h.type === 'purpleRain') {
-          reduceSudoTimer(state, 1);
-          stripTimedPowerUps(state);
+          // Only drain SUDO if not invincible and no shield active
+          if (!state.invincibilityActive && !state.shieldActive) {
+            reduceSudoTimer(state, 1);
+            stripTimedPowerUps(state);
+          }
         }
-        if (!state.shieldActive && !state.invincibilityActive && state.hitCooldown <= 0) {
+        if (!state.invincibilityActive && state.hitCooldown <= 0 && state.shieldInvulnerabilityTimer <= 0) {
           let damage = 1;
           if (h.type === 'hail') damage = 2;
+          
+          const shieldWasActive = state.shieldActive && !state.invincibilityActive;
+          if (shieldWasActive) {
+            damage = 0;
+            state.shieldInvulnerabilityTimer = 1.0;
+            state.powerUpText = 'SHIELD BROKEN!';
+            state.powerUpTextTimer = Math.max(state.powerUpTextTimer, 1.5);
+            state.shieldActive = false; // Shield breaks after taking one hit
+          }
+          
           const willDie = state.hp - damage <= 0;
           state.hp = Math.max(0, state.hp - damage);
-          state.hitCooldown = 1.2;
+          state.hitCooldown = 1.5; // longer post-hit invulnerability
           state.deathFlash = 1.2;
           state.combo = 0;
           state.comboTimer = 0;
@@ -1514,11 +1537,11 @@ function updatePlaying(state: GameState, dt: number): void {
   }
 
   if (state.hitCooldown > 0) state.hitCooldown -= dt;
+  if (state.shieldInvulnerabilityTimer > 0) state.shieldInvulnerabilityTimer -= dt;
   if (state.deathFlash > 0) state.deathFlash -= dt;
 
   updateParticles(state, dt);
   updateGroundSnow(state, dt);
-  updatePowerUpPickups(state, dt, powerUpRuntime);
   maybeSpawnComboPowerUp(state);
   updateScorePopups(state, dt);
   updateUmbrellaSlides(state, dt);
