@@ -326,15 +326,15 @@ const POWER_UP_WEIGHTS: Array<{ type: PowerUpType; weight: number }> = [
 ];
 
 const POWER_UP_TEXT: Record<PowerUpType, string> = {
-  shield: 'SHIELD',
+  shield: '|SHIELD>',
   doublePoints: '*2X POINTS*',
   slowMotion: 'SNAIL...',
   healthBoost: '+HEALTH+',
   hazardClear: '!CLEAR!',
-  clearScreen: 'CLS',
-  findBoost: 'FIND',
-  pipePoints: 'PIPE',
-  killHazards: 'KILL',
+  clearScreen: '?CLS?',
+  findBoost: '=>FIND<=',
+  pipePoints: '=PIPE=',
+  killHazards: '[KILL]',
 };
 
 // ─── Init ─────────────────────────────────────────────────────────────────────
@@ -1025,6 +1025,12 @@ function updatePowerUpPickups(state: GameState, dt: number): void {
     if (dx < 40 && dy < 42) {
       state.powerUpPickups.splice(i, 1);
       activatePowerUp(state, pickup.type);
+      // Award points for collecting powerup — scales significantly with difficulty
+      const basePowerUpPoints = 200;
+      const difficultyMultiplier = 1 + (state.difficultyLevel * 2);
+      const powerUpPoints = Math.round(basePowerUpPoints * difficultyMultiplier);
+      state.score += scoreWithModifiers(state, powerUpPoints);
+      spawnScorePopup(state, pickup.x, pickup.y - 20, powerUpPoints, 1);
     }
   }
 }
