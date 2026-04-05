@@ -504,13 +504,16 @@ function computeCloudBottom(state: Pick<GameState, 'W' | 'H' | 'clouds' | 'hudBa
   return startY + CLOUD_ART_LINES * lineH;
 }
 
-export function computeUmbrellaYBounds(state: Pick<GameState, 'W' | 'H' | 'clouds' | 'hudBarHeight'>): { minY: number; maxY: number } {
+export function computeUmbrellaYBounds(state: Pick<GameState, 'W' | 'H' | 'clouds'>): { minY: number; maxY: number } {
   const umbrellaLineH = computeUmbrellaLineH(state.W);
+  const cloudLineH = computeCloudLineH(state.W);
+  const hudH = computeLegacyHudBarHeight(state.W, state.H);
   const totalUmbrellaLines = UMBRELLA_CANOPY_LINES + UMBRELLA_HANDLE_LINES + UMBRELLA_FOOT_LINES;
 
   let cloudCeiling = Infinity;
   for (const cloud of state.clouds) {
-    cloudCeiling = Math.min(cloudCeiling, computeCloudBottom(state, cloud));
+    const cloudTopY = Math.max(hudH + 5, cloud.y);
+    cloudCeiling = Math.min(cloudCeiling, cloudTopY + CLOUD_ART_LINES * cloudLineH);
   }
 
   if (!Number.isFinite(cloudCeiling)) {
