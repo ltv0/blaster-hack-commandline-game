@@ -47,13 +47,13 @@ const POWER_UP_WEIGHTS: Array<{ type: PowerUpType; weight: number }> = [
   { type: 'rm', weight: 8 },
   { type: 'zip', weight: 14 }, // Increased weight for higher likelihood
   { type: 'unzip', weight: 8 },
-  { type: 'sudo', weight: 3 },
+  { type: 'sudo', weight: 4 },
   { type: 'shield', weight: 12 },
-  { type: 'doublePoints', weight: 30 },
+  { type: 'doublePoints', weight: 25 },
   { type: 'slowMotion', weight: 5 },
-  { type: 'healthBoost', weight: 8 }, // Reduced weight for lower likelihood
+  { type: 'healthBoost', weight: 12 }, // Reduced weight for lower likelihood
   { type: 'hazardClear', weight: 6 },
-  { type: 'findBoost', weight: 5 },
+  { type: 'findBoost', weight: 6 },
 ];
 
 const POWER_UP_TEXT: Record<PowerUpType, string> = {
