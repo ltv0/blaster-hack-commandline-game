@@ -1,6 +1,7 @@
 import type { PowerUpPickup, PowerUpRuntime, PowerUpType } from './power-ups.ts';
 import {
   maybeSpawnComboPowerUp,
+  stripTimedPowerUps,
   updatePowerUpPickups,
   updatePowerUpTimers,
 } from './power-ups.ts';
@@ -69,7 +70,7 @@ function releaseParticle(particle: Particle): void {
   if (particlePool.length >= PARTICLE_POOL_MAX) return;
   particlePool.push(particle);
 }
-// ─── Types ───────────────────────────────────────────────────────────────────
+// G��G��G�� Types G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��
 
 export type GamePhase = 'boot' | 'playing' | 'dead';
 
@@ -81,7 +82,7 @@ export interface Hazard {
   prevY: number;
   vx: number;
   vy: number;
-  type: 'rain' | 'snow' | 'hail';
+  type: 'rain' | 'snow' | 'hail' | 'purpleRain';
   glyph: string;
   blocked: boolean;
   size: number;
@@ -97,7 +98,7 @@ export interface Particle {
   maxLife: number;
   glyph: string;
   color: string;
-  type: 'rain' | 'snow' | 'hail';
+  type: 'rain' | 'snow' | 'hail' | 'purpleRain';
   sizeScale: number;
   // true for secondary particles spawned from cloud impacts to avoid re-trigger loops
   fromCloudHit?: boolean;
@@ -159,11 +160,11 @@ export interface Cloud {
   y: number;          // centre y (stays in top strip)
   vx: number;         // horizontal drift speed (px/s)
   vy: number;         // vertical drift speed (px/s)
-  type: 'rain' | 'snow' | 'hail';
+  type: 'rain' | 'snow' | 'hail' | 'purpleRain';
   // pulsing flash when it emits a hazard
   flashTimer: number;
   // renderer-selected visual style for cloud glyphs
-  visualType?: 'rain' | 'snow' | 'hail';
+  visualType?: 'rain' | 'snow' | 'hail' | 'purpleRain';
   // per-cloud independent spawn cadence
   spawnTimer: number;
   // current interval between spawns
@@ -171,11 +172,11 @@ export interface Cloud {
   // width in pixels (written by renderer so spawn x is accurate)
   artW: number;
   // emit points (relative to cloud center) sampled from visible cloud topology
-  emitPoints: Array<{ dx: number; dy: number; pType?: 'rain' | 'snow' | 'hail' }>;
+  emitPoints: Array<{ dx: number; dy: number; pType?: 'rain' | 'snow' | 'hail' | 'purpleRain' }>;
 }
 
 export type AudioEvent =
-  | { kind: 'block'; hazardType: 'rain' | 'snow' | 'hail' }
+  | { kind: 'block'; hazardType: 'rain' | 'snow' | 'hail' | 'purpleRain' }
   | { kind: 'hit' }
   | { kind: 'levelup' }
   | { kind: 'death' }
@@ -185,16 +186,13 @@ export interface GameState {
   phase: GamePhase;
   W: number;
   H: number;
-
-  // boot
+  hudBarHeight: number;
   bootLines: string[];
   bootDone: boolean;
   bootTimer: number;
   bootLineIndex: number;
   promptBlink: boolean;
   promptBlinkTimer: number;
-
-  // traveler
   travelerX: number;
   travelerY: number;
   travelerBaseY: number;   // ground-level Y (travelerY rests here when not jumping)
@@ -205,65 +203,39 @@ export interface GameState {
   jumpTimer: number;       // countdown to next jump (s)
   jumpInterval: number;    // current interval between jumps (s)
   isJumping: boolean;
-
-  // umbrella
   umbrellaX: number;
   umbrellaY: number;
   umbrellaVY: number;
   _umbrellaActualY?: number;
   umbrellaW: number;
   umbrellaH: number;
-
-  // clouds — weather sources drifting at the top
   clouds: Cloud[];
   cloudIdCounter: number;
-
-  // active falling hazards emitted by clouds
   hazards: Hazard[];
   hazardIdCounter: number;
   spawnTimer: number;
   spawnInterval: number;
-
-  // particles
   particles: Particle[];
   particleIdCounter: number;
-
-  // snow on ground (particles that hit ground)
   groundSnow: Array<{ x: number; y: number; life: number }>;
-
-  // umbrella rain slides
   umbrellaSlides: UmbrellaSlide[];
   umbrellaSlideIdCounter: number;
-
-  // score popups
   scorePopups: ScorePopup[];
   scorePopupIdCounter: number;
-
-  // heart explosions
   heartExplosions: HeartExplosion[];
   heartExplosionIdCounter: number;
-
-  // power-up pickups
   powerUpPickups: PowerUpPickup[];
   powerUpPickupIdCounter: number;
-
-  // scroll / parallax
   groundOffset: number;
   bgStarOffset: number;
-
-  // scoring
   score: number;
   scoreTimer: number;
   combo: number;
   comboTimer: number;
   bestCombo: number;
-
-  // health
   hp: number;
   maxHp: number;
   hitCooldown: number;
-
-  // power-up status
   activePowerUp: PowerUpType | null;
   powerUpTimer: number;
   powerUpText: string;
@@ -276,25 +248,15 @@ export interface GameState {
   speedBoostActive: boolean;
   invincibilityActive: boolean;
   powerUpTimers: Partial<Record<PowerUpType, number>>;
-
-  // difficulty
   elapsed: number;
   difficultyLevel: number;
-
-  // level-up banner
   levelUpTimer: number;
   levelUpText: string;
-
-  // wind
   windX: number;
   windTargetX: number;
   windChangeTimer: number;
   windGustTimer: number;
-
-  // vfx
   deathFlash: number;
-
-  // umbrella art pixel geometry (written by renderer each frame, read by slide logic)
   umbrellaArtStartX: number;
   umbrellaArtWidth: number;
   umbrellaArtStartY: number;
@@ -302,14 +264,13 @@ export interface GameState {
   pointerX: number;
   pointerY: number;
   pointerDown: boolean;
-
-  // audio triggers (consumed each frame by audio layer)
   audioEvents: AudioEvent[];
 }
 
-// ─── Constants ────────────────────────────────────────────────────────────────
+// G��G��G�� Constants G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��
 
 // Vertical glyphs for rain
+
 export const CAT_GLYPH = 'C\nA\nT';
 export const DOG_GLYPH = 'D\nO\nG';
 
@@ -363,6 +324,9 @@ export const COLORS = {
   cloudSnow:   '#3a4a5a',
   cloudHail:   '#2d3540',
   cloudFlash:  '#56d4e0',
+  PURPLE_RAIN: '#bf40ff',
+  PURPLE_GLOW: 'rgba(191, 64, 255, 0.8)',
+  PURPLE_FLARE: '#ffffff',
 };
 
 const GROUND_Y_RATIO = 0.91;
@@ -385,6 +349,7 @@ export function createInitialState(W: number, H: number): GameState {
   return {
     phase: 'boot',
     W, H,
+    hudBarHeight: computeLegacyHudBarHeight(W, H),
 
     bootLines: [],
     bootDone: false,
@@ -507,19 +472,34 @@ function computeTravelerBaseY(state: GameState): number {
 const UMBRELLA_CANOPY_LINES = 6;
 const UMBRELLA_HANDLE_LINES = 8;
 const UMBRELLA_FOOT_LINES = 4;
+const CLOUD_ART_LINES = 4;
 
 function computeCloudLineH(W: number): number {
   return Math.round(Math.max(9, Math.min(14, W / 75)) * 1.35);
 }
 
-function computeCloudBottom(state: Pick<GameState, 'W' | 'clouds'>, cloud: Cloud): number {
-  const hudH = Math.max(10, Math.min(14, state.W / 70)) + 20;
-  const lineH = computeCloudLineH(state.W);
-  const startY = Math.max(hudH + 6, cloud.y);
-  return startY + 8 * lineH;
+function computeLegacyHudBarHeight(W: number, H: number): number {
+  const size = Math.max(8, Math.min(15, W / 70));
+  const lineH = size + 2;
+  const topInset = Math.round(lineH * 0.6) + 8 + (H > W ? Math.round(lineH * 0.8) : 0);
+  const cmdLineH = Math.max(10, Math.round(size * 1.2));
+  return topInset + lineH * 2 + cmdLineH + 18;
 }
 
-export function computeUmbrellaYBounds(state: Pick<GameState, 'W' | 'H' | 'clouds'>): { minY: number; maxY: number } {
+function getGameHudBarHeight(state: Pick<GameState, 'W' | 'H' | 'hudBarHeight'>): number {
+  return Number.isFinite(state.hudBarHeight)
+    ? state.hudBarHeight
+    : computeLegacyHudBarHeight(state.W, state.H);
+}
+
+function computeCloudBottom(state: Pick<GameState, 'W' | 'H' | 'clouds' | 'hudBarHeight'>, cloud: Cloud): number {
+  const hudH = getGameHudBarHeight(state);
+  const lineH = computeCloudLineH(state.W);
+  const startY = Math.max(hudH + 6, cloud.y);
+  return startY + CLOUD_ART_LINES * lineH;
+}
+
+export function computeUmbrellaYBounds(state: Pick<GameState, 'W' | 'H' | 'clouds' | 'hudBarHeight'>): { minY: number; maxY: number } {
   const umbrellaLineH = computeUmbrellaLineH(state.W);
   const totalUmbrellaLines = UMBRELLA_CANOPY_LINES + UMBRELLA_HANDLE_LINES + UMBRELLA_FOOT_LINES;
 
@@ -537,7 +517,7 @@ export function computeUmbrellaYBounds(state: Pick<GameState, 'W' | 'H' | 'cloud
     // umbrellaY maps to one line below the rendered top (startY = umbrellaY - lineH)
     minY: Math.max(0, cloudCeiling + umbrellaLineH),
     // bottom of the rendered umbrella sits (totalLines - 1) lines below umbrellaY
-    maxY: groundY - umbrellaLineH * (totalUmbrellaLines - 1),
+    maxY: groundY - umbrellaLineH * (totalUmbrellaLines - 2), // Adjusted to allow the umbrella to move lower
   };
 }
 
@@ -572,17 +552,21 @@ function updateWind(state: GameState, dt: number): void {
 
 // ─── Cloud helpers ────────────────────────────────────────────────────────────
 
-function cloudSpawnInterval(level: number, type: 'rain' | 'snow' | 'hail'): number {
+function cloudSpawnInterval(level: number, type: 'rain' | 'snow' | 'hail' | 'purpleRain'): number {
   // Rain fires fastest, hail slowest but hits harder
-  const base = type === 'rain' ? 0.55 : type === 'snow' ? 0.75 : 1.1;
+  const base =
+    type === 'rain' ? 0.55 :
+    type === 'snow' ? 0.75 :
+    type === 'purpleRain' ? 0.62 :
+    1.1;
   return Math.max(0.18, base - level * 0.04);
 }
 
-function spawnCloud(state: GameState, x: number, type: 'rain' | 'snow' | 'hail'): void {
+function spawnCloud(state: GameState, x: number, type: 'rain' | 'snow' | 'hail' | 'purpleRain'): void {
   const { H, difficultyLevel: level } = state;
   const cloudY   = H * 0.07 + Math.random() * H * 0.07;
   // Clouds drift at different speeds by type: rain drifts faster, hail sluggish
-  const baseSpeed = type === 'rain' ? 22 : type === 'snow' ? 14 : 10;
+  const baseSpeed = type === 'rain' ? 22 : type === 'snow' ? 14 : type === 'purpleRain' ? 20 : 10;
   const speed     = (baseSpeed + Math.random() * 12) * (Math.random() < 0.5 ? 1 : -1);
   const vy        = (Math.random() - 0.5) * 8; // small vertical drift
   state.clouds.push({
@@ -606,22 +590,25 @@ function maintainClouds(state: GameState): void {
   const { W, difficultyLevel: level } = state;
   const MAX_CLOUDS = 8; // Hard cap on clouds
   const target = Math.min(MAX_CLOUDS, 3 + Math.floor(level / 2));
+  const purpleRatio = level >= 10 ? Math.min(0.10, (level - 10) * 0.005) : 0;
 
   // --- Profiling ---
   const maintainStart = (typeof performance !== 'undefined' && performance.now) ? performance.now() : Date.now();
   let cloudsAdded = 0;
 
   // Count existing types
-  const typeCounts = { rain: 0, snow: 0, hail: 0 };
+  const typeCounts = { rain: 0, snow: 0, hail: 0, purpleRain: 0 };
   for (const c of state.clouds) typeCounts[c.type]++;
 
   while (state.clouds.length < target && state.clouds.length < MAX_CLOUDS) {
-    let type: 'rain' | 'snow' | 'hail';
+    let type: 'rain' | 'snow' | 'hail' | 'purpleRain';
     if (level < 1) {
       type = 'rain';
     } else if (level === 1) {
       // Only rain clouds at level 1
       type = 'rain';
+    } else if (purpleRatio > 0 && Math.random() < purpleRatio) {
+      type = 'purpleRain';
     } else {
       // Pick the least-represented type
       if (typeCounts.hail === 0 && level >= 2) {
@@ -672,7 +659,7 @@ function spawnHazardFromCloud(state: GameState, cloud: Cloud): void {
 
   const x = cloud.x + p.dx;
   const y = cloud.y + p.dy;
-  const hazardType = p.pType ?? cloud.type;
+  const hazardType = cloud.type === 'purpleRain' ? 'purpleRain' : (p.pType ?? cloud.type);
   let glyph: string;
   if (hazardType === 'rain') {
     // Keep rain glyph selection stable at higher levels without weighted overflows.
@@ -681,6 +668,8 @@ function spawnHazardFromCloud(state: GameState, cloud: Cloud): void {
     glyph = useAnimalGlyph
       ? (Math.random() < 0.5 ? CAT_GLYPH : DOG_GLYPH)
       : (Math.random() < 0.5 ? '|' : '/');
+  } else if (hazardType === 'purpleRain') {
+    glyph = Math.random() < 0.5 ? '!' : '|';
   } else {
     const glyphs = HAZARD_GLYPHS[hazardType];
     if (!glyphs || glyphs.length === 0) return;
@@ -730,7 +719,7 @@ function spawnHazard(state: GameState): void {
 function spawnSplash(
   state: GameState,
   x: number, y: number,
-  type: 'rain' | 'snow' | 'hail',
+  type: 'rain' | 'snow' | 'hail' | 'purpleRain',
   isHit = false,
   sizeScale = 1,
   glyphOverride?: string
@@ -744,6 +733,9 @@ function spawnSplash(
   } else if (type === 'snow') {
     color = isHit ? COLORS.brightRed : COLORS.snowSplash;
     glyphs = ['\xb7', '\u02d9', '*'];
+  } else if (type === 'purpleRain') {
+    color = isHit ? COLORS.PURPLE_FLARE : COLORS.PURPLE_RAIN;
+    glyphs = [':', '\xb7', '*'];
   } else {
     color = isHit ? COLORS.brightRed : COLORS.splash;
     // Accept a glyph argument for splash (for CAT/DOG)
@@ -781,7 +773,7 @@ function spawnSplash(
 function pointHitsAnyCloud(state: GameState, x: number, y: number): boolean {
   if (state.clouds.length === 0) return false;
 
-  const hudH = Math.max(10, Math.min(14, state.W / 70)) + 20;
+  const hudH = getGameHudBarHeight(state);
   const lineH = computeCloudLineH(state.W);
   const fallbackArtW = Math.max(80, Math.min(220, state.W * 0.18));
 
@@ -801,15 +793,23 @@ function spawnCloudHitBurst(
   state: GameState,
   x: number,
   y: number,
-  type: 'rain' | 'snow' | 'hail',
+  type: 'rain' | 'snow' | 'hail' | 'purpleRain',
 ): void {
-  const count = type === 'hail' ? 5 : type === 'snow' ? 4 : 3;
-  const color = type === 'hail' ? COLORS.hailSplash : type === 'snow' ? COLORS.snowSplash : COLORS.splash;
+  const count = type === 'hail' ? 5 : type === 'snow' ? 4 : type === 'purpleRain' ? 5 : 3;
+  const color = type === 'hail'
+    ? COLORS.hailSplash
+    : type === 'snow'
+      ? COLORS.snowSplash
+      : type === 'purpleRain'
+        ? COLORS.PURPLE_RAIN
+        : COLORS.splash;
   const glyphs = type === 'hail'
     ? ['\u00b7', '*', '\u25e6']
     : type === 'snow'
       ? ['\u00b7', '\u02d9', '*']
-      : ['\u00b7', '\'', '/'];
+      : type === 'purpleRain'
+        ? ['*', ':', '!']
+        : ['\u00b7', '\'', '/'];
 
   for (let i = 0; i < count; i++) {
     if (state.particles.length >= MAX_PARTICLES) {
@@ -1393,7 +1393,7 @@ function updatePlaying(state: GameState, dt: number): void {
     h.prevX = h.x;
     h.prevY = h.y;
 
-    const windInfluence = h.type === 'snow' ? 1.05 : h.type === 'rain' ? 0.72 : 0.48;
+    const windInfluence = h.type === 'snow' ? 1.05 : h.type === 'rain' || h.type === 'purpleRain' ? 0.72 : 0.48;
     h.vx += (state.windX * windInfluence - h.vx * 0.12) * dt;
     h.x += h.vx * dt * hazardSpeedFactor;
     h.y += h.vy * dt * hazardSpeedFactor;
@@ -1435,6 +1435,9 @@ function updatePlaying(state: GameState, dt: number): void {
     if (!removeHazard && !h.blocked) {
       const dx = Math.abs(h.x - state.travelerX);
       if (dx < 22 && h.y >= state.travelerY - 8 && h.y <= state.travelerY + 38) {
+        if (h.type === 'purpleRain') {
+          stripTimedPowerUps(state);
+        }
         if (!state.shieldActive && !state.invincibilityActive && state.hitCooldown <= 0) {
           let damage = 1;
           if (h.type === 'hail') damage = 2;
@@ -1688,7 +1691,7 @@ function updateClouds(state: GameState, dt: number): void {
 
   for (let i = 0; i < state.clouds.length; i++) {
     const c = state.clouds[i]!;
-    const windPush = state.windX * (c.type === 'snow' ? 0.2 : c.type === 'rain' ? 0.15 : 0.1);
+    const windPush = state.windX * (c.type === 'snow' ? 0.2 : c.type === 'rain' || c.type === 'purpleRain' ? 0.15 : 0.1);
     c.x += (c.vx + windPush) * dt;
     c.y += c.vy * dt;
     c.y = Math.max(minCloudY, Math.min(maxCloudY, c.y));

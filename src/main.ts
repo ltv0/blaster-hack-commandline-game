@@ -540,19 +540,19 @@ function getCloudFieldBlockedIntervalsForBand(bandTop: number, bandBottom: numbe
     const localX = Math.max(0, Math.min(CANVAS_W - 1, x));
     const occupied = sampleBrightness(localX, localY) >= CLOUD_FIELD_CARVE_BRIGHTNESS;
 
-    if (occupied && runStart < 0) {
-      runStart = x;
+    if (occupied && run_start < 0) {
+      run_start = x;
       continue;
     }
 
-    if (!occupied && runStart >= 0) {
-      out.push({ left: Math.max(0, runStart - pad), right: Math.min(W, x + step * 0.5 + pad) });
-      runStart = -1;
+    if (!occupied && run_start >= 0) {
+      out.push({ left: Math.max(0, run_start - pad), right: Math.min(W, x + step * 0.5 + pad) });
+      run_start = -1;
     }
   }
 
-  if (runStart >= 0) {
-    out.push({ left: Math.max(0, runStart - pad), right: W });
+  if (run_start >= 0) {
+    out.push({ left: Math.max(0, run_start - pad), right: W });
   }
 
   return out;
@@ -1107,10 +1107,11 @@ function drawStars(s: GameState): void {
 
 // Clouds
 const CLOUD_CHARSET = ' .,-:;=+*#%R';
-const CLOUD_CHARSETS: Record<'rain' | 'snow' | 'hail', string> = {
+const CLOUD_CHARSETS: Record<ParticleType, string> = {
   rain: CLOUD_CHARSET,
   snow: ' .,-:;=+*#%S',
   hail: ' .,-:;=+*#%H',
+  purpleRain: ' PURPLE PURPLE ',
 };
 const CLOUD_EMIT_BRIGHTNESS = 0.22;
 const CLOUD_EMIT_SAMPLE_COLS = 18;
@@ -1122,6 +1123,44 @@ const EMIT_POINTS_UPDATE_INTERVAL = 1 / 12;
 function brightnessToCharsetIndex(brightness: number): number {
   const adjusted = Math.sqrt(brightness);
   return Math.min(Math.max(Math.floor(adjusted * (CLOUD_CHARSET.length - 1)), 0), CLOUD_CHARSET.length - 1);
+}
+function wrapPatternIndex(index: number, length: number): number {
+  if (length <= 0) return 0;
+  return ((index % length) + length) % length;
+}
+function cloudNoise(seed: number): number {
+  const value = Math.sin(seed * 12.9898 + 78.233) * 43758.5453;
+  return value - Math.floor(value);
+}
+function getRollingCloudChar(
+  type: ParticleType | 'mixed' | undefined,
+  col: number,
+  row: number,
+  elapsed: number,
+  brightness: number,
+): string {
+  const resolvedType: ParticleType = type === 'snow' || type === 'hail' || type === 'purpleRain' ? type : 'rain';
+  const pattern = CLOUD_CHARSETS[resolvedType] || CLOUD_CHARSET;
+  const speed = resolvedType === 'snow' ? -2.2 : resolvedType === 'hail' ? 4.4 : 6.4;
+  const phase = Math.floor(elapsed * speed + row * (resolvedType === 'snow' ? 1.2 : 1.7));
+  const idx = wrapPatternIndex(col + phase, pattern.length);
+  let ch = pattern[idx] ?? ' ';
+  if (brightness > 0.72 && ch === ' ') {
+    ch = pattern[wrapPatternIndex(idx + 1, pattern.length)] ?? ' ';
+  }
+
+  if (ch !== ' ') {
+    const timeBucket = Math.floor(elapsed * (resolvedType === 'snow' ? 2.0 : resolvedType === 'hail' ? 3.6 : 3.0));
+    const noise = cloudNoise((col + 1) * 17.13 + (row + 1) * 91.7 + timeBucket * 0.73 + brightness * 11.2);
+    const symbolChance = brightness > 0.68 ? 0.22 : brightness > 0.3 ? 0.14 : 0.08;
+    if (noise < symbolChance) {
+      const symbolIdx = Math.floor(cloudNoise(noise * 97 + col * 3.1 + row * 5.7) * CLOUD_DECORATION_CHARS.length);
+      ch = CLOUD_DECORATION_CHARS[symbolIdx] ?? ch;
+    }
+  }
+
+  if (brightness < 0.12 && ch !== ' ') return '.';
+  return ch;
 }
 const SHOW_CLOUD_SOURCE_FIELD = false;
 
@@ -1140,7 +1179,7 @@ let CANVAS_H = 200;
 let FIELD_SCALE_X = 0;
 let FIELD_SCALE_Y = 0;
 
-type ParticleType = 'rain' | 'snow' | 'hail';
+type ParticleType = 'rain' | 'snow' | 'hail' | 'purpleRain';
 interface Particle { x: number; y: number; vx: number; vy: number; phase: number; type: ParticleType }
 interface Attractor { x: number; y: number; vx: number; vy: number; strength: number; }
 interface FieldStamp { radiusX: number; radiusY: number; sizeX: number; sizeY: number; values: Float32Array; }
@@ -1527,7 +1566,7 @@ function getCloudLines(c: Cloud): string[];
 function getCloudLines(c: Cloud, elapsed: number): string[];
 function getCloudLines(c: Cloud, elapsed = 0): string[] {
   const width = 20 + (c.id % 3) * 3 + (c.type === 'hail' ? 4 : 0);
-  const phase = elapsed * (c.type === 'rain' ? 1.2 : c.type === 'snow' ? 0.7 : 0.5) + c.id * 0.9;
+  const phase = elapsed * (c.type === 'rain' ? 1.2 : c.type === 'snow' ? 0.7 : c.type === 'purpleRain' ? 1.0 : 0.5) + c.id * 0.9;
   const charset = (c.visualType ? CLOUD_CHARSETS[c.visualType] : CLOUD_CHARSET) || CLOUD_CHARSET;
   const body = makeCloudBody(width, charset, phase, false);
   const fill = makeCloudBody(width, charset, phase + 0.9, true);
@@ -1653,6 +1692,19 @@ function drawClouds(s: GameState): void {
         drawCloudRun(substr, runType, x, startY + r * lineH);
       }
     }
+  }
+
+  for (const cloud of s.clouds) {
+    if (cloud.type !== 'purpleRain') continue;
+    const cloudBlock = renderer.getBlock(getCloudLines(cloud, s.elapsed).join('\n'), f, lineH);
+    const cloudX = cloud.x - cloudBlock.width / 2;
+    const cloudY = Math.max(startY, cloud.y);
+    renderer.drawBlock(ctx, cloudBlock, cloudX, cloudY, {
+      color: COLORS.PURPLE_RAIN,
+      shadowColor: COLORS.PURPLE_GLOW,
+      shadowBlur: 14,
+      alpha: 0.38,
+    });
   }
 }
 
@@ -1782,11 +1834,30 @@ function drawHazards(s: GameState): void {
     const base = (h.type === 'hail' ? sz(W / 55, 12, 17) : sz(W / 65, 10, 14)) * WEATHER_FONT_SCALE;
     const size = Math.round(base * h.size);
     const f = fnt(size, 700);
-    const color = h.type === 'rain' ? COLORS.rain : h.type === 'snow' ? COLORS.snow : COLORS.hail;
-    const shadowColor = h.type === 'rain' ? '#1a6090' : h.type === 'snow' ? '#6090b0' : '#606878';
+    const color = h.type === 'rain' ? COLORS.rain : h.type === 'snow' ? COLORS.snow : h.type === 'purpleRain' ? COLORS.PURPLE_RAIN : COLORS.hail;
+    const shadowColor = h.type === 'rain' ? '#1a6090' : h.type === 'snow' ? '#6090b0' : h.type === 'purpleRain' ? COLORS.PURPLE_GLOW : '#606878';
     const alpha = Math.min(1, (h.y + 30) / 30);
     const block = renderer.getBlock(h.glyph, f, size * 1.3);
-    renderer.drawBlock(ctx, block, h.x, h.y, { color, shadowColor, shadowBlur: 6, align: 'center', verticalAlign: 'middle', alpha });
+    if (h.type === 'purpleRain') {
+      renderer.drawBlock(ctx, block, h.x + 1, h.y, {
+        color: COLORS.PURPLE_FLARE,
+        shadowColor: COLORS.PURPLE_GLOW,
+        shadowBlur: 15,
+        align: 'center',
+        verticalAlign: 'middle',
+        alpha: alpha * 0.55,
+      });
+      renderer.drawBlock(ctx, block, h.x, h.y, {
+        color,
+        shadowColor,
+        shadowBlur: 15,
+        align: 'center',
+        verticalAlign: 'middle',
+        alpha,
+      });
+    } else {
+      renderer.drawBlock(ctx, block, h.x, h.y, { color, shadowColor, shadowBlur: 6, align: 'center', verticalAlign: 'middle', alpha });
+    }
   }
 }
 

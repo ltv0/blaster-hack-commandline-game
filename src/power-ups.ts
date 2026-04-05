@@ -34,7 +34,12 @@ export interface PowerUpRuntime {
   spawnScorePopup: (state: GameState, x: number, y: number, points: number, combo: number) => void;
 }
 
-const POWER_UP_THRESHOLD = 40;
+const BASE_POWER_UP_THRESHOLD = 40;
+
+function getDynamicPowerUpThreshold(difficultyLevel: number): number {
+  return Math.floor(BASE_POWER_UP_THRESHOLD + difficultyLevel * 2);
+}
+
 const POWER_UP_PICKUP_TTL = 12;
 
 const POWER_UP_WEIGHTS: Array<{ type: PowerUpType; weight: number }> = [
@@ -42,13 +47,13 @@ const POWER_UP_WEIGHTS: Array<{ type: PowerUpType; weight: number }> = [
   { type: 'rm', weight: 8 },
   { type: 'zip', weight: 20 }, // Increased weight for higher likelihood
   { type: 'unzip', weight: 8 },
-  { type: 'sudo', weight: 5 },
+  { type: 'sudo', weight: 2 },
   { type: 'shield', weight: 12 },
-  { type: 'doublePoints', weight: 12 },
-  { type: 'slowMotion', weight: 10 },
+  { type: 'doublePoints', weight: 30 },
+  { type: 'slowMotion', weight: 5 },
   { type: 'healthBoost', weight: 8 }, // Reduced weight for lower likelihood
   { type: 'hazardClear', weight: 6 },
-  { type: 'findBoost', weight: 10 },
+  { type: 'findBoost', weight: 5 },
 ];
 
 const POWER_UP_TEXT: Record<PowerUpType, string> = {
@@ -98,14 +103,35 @@ function chooseRandomPlan2BonusPowerUp(): PowerUpType {
   return choices[Math.floor(Math.random() * choices.length)]!;
 }
 
-function resetTimedPowerUps(state: GameState): void {
+function hasPickupHitTraveler(state: GameState, pickup: PowerUpPickup): boolean {
+  const travelerSize = Math.max(14, Math.min(22, state.W / 40));
+  const travelerCenterX = state.travelerX;
+  const travelerCenterY = state.travelerY + travelerSize * 1.15;
+  const pickupRadius = Math.max(18, travelerSize * 1.1);
+  const travelerRadius = Math.max(24, travelerSize * 1.25);
+  const maxDist = pickupRadius + travelerRadius;
+
+  const dx = pickup.x - travelerCenterX;
+  const dy = pickup.y - travelerCenterY;
+  return dx * dx + dy * dy <= maxDist * maxDist;
+}
+
+export function stripTimedPowerUps(state: GameState): void {
+  const sudoTimer = state.powerUpTimers.sudo ?? 0;
+
+  // Strip timed effects but preserve sudo/invincibility.
   state.shieldActive = false;
   state.doublePointsActive = false;
   state.slowMotionActive = false;
   state.findBoostActive = false;
   state.speedBoostActive = false;
-  state.invincibilityActive = false;
-  state.powerUpTimers = {};
+  state.powerUpTimers = sudoTimer > 0 ? { sudo: sudoTimer } : {};
+
+  state.powerUpTimer = 0;
+  state.powerUpText = 'SYSTEM PURGE';
+  state.powerUpTextTimer = Math.max(state.powerUpTextTimer, 1.1);
+  state.powerUpFlashTimer = Math.max(state.powerUpFlashTimer, 0.5);
+  state.activePowerUp = sudoTimer > 0 || state.invincibilityActive ? 'sudo' : null;
 }
 
 function setTimedPowerUpState(state: GameState, type: PowerUpType, active: boolean): void {
@@ -188,13 +214,13 @@ export function activatePowerUp(state: GameState, type: PowerUpType, runtime: Po
 }
 
 export function maybeSpawnComboPowerUp(state: GameState): void {
-  const comboThreshold = state.difficultyLevel < 4 ? POWER_UP_THRESHOLD / 2 : POWER_UP_THRESHOLD;
-  if (state.combo < comboThreshold) return;
+  const currentThreshold = getDynamicPowerUpThreshold(state.difficultyLevel);
+  if (state.combo < currentThreshold) return;
 
   const type = chooseRandomPowerUp();
   const margin = Math.max(40, Math.min(120, state.W * 0.12));
   const x = margin + Math.random() * Math.max(1, state.W - margin * 2);
-  const y = state.travelerBaseY - (8 + Math.random() * 16);
+  const y = state.travelerBaseY - (12 + Math.random() * 4); // Reduced offset to spawn closer to the ground
 
   state.powerUpPickups.push({
     id: state.powerUpPickupIdCounter++,
@@ -245,9 +271,7 @@ export function updatePowerUpPickups(state: GameState, dt: number, runtime: Powe
       continue;
     }
 
-    const dx = Math.abs(pickup.x - state.travelerX);
-    const dy = Math.abs(pickup.y - (state.travelerY + 12));
-    if (dx < 40 && dy < 42) {
+    if (hasPickupHitTraveler(state, pickup)) {
       state.powerUpPickups.splice(i, 1);
       activatePowerUp(state, pickup.type, runtime);
 
