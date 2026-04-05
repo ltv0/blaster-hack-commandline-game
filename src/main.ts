@@ -198,6 +198,8 @@ function drawAsciiBackground(scrollY: number, baseAlpha: number, tintColor: stri
 let state: GameState;
 function init(): void {
   resize(); buildStars(W, H); buildAsciiBackground();
+  // Start loading the editable sky text from src/LoremIpsum.txt
+  void loadSkyText();
   initParticleSystem();
   state = createInitialState(W, H);
   bindEvents();
@@ -351,6 +353,8 @@ function drawBoot(s: GameState): void {
 // ─── Game world ───────────────────────────────────────────────────────────────
 function drawGame(s: GameState): void {
   drawAsciiBackground(s.bgStarOffset * 0.3, 0.065, '#244d35');
+  // Draw repeating Lorem Ipsum text across the sky area (behind clouds)
+  drawSkyTextBackground(s);
   if (SHOW_CLOUD_SOURCE_FIELD) drawSourceField();
   drawStars(s);
   drawClouds(s);
@@ -400,7 +404,83 @@ function brightnessToCharsetIndex(brightness: number): number {
   const adjusted = Math.sqrt(brightness);
   return Math.min(Math.max(Math.floor(adjusted * (CLOUD_CHARSET.length - 1)), 0), CLOUD_CHARSET.length - 1);
 }
-const SHOW_CLOUD_SOURCE_FIELD = true;
+const SHOW_CLOUD_SOURCE_FIELD = false;
+
+// Sky background text is loaded from `src/LoremIpsum.txt` at runtime so you can
+// edit the file and see changes without editing source code. We fetch the file
+// using import.meta.url so it resolves correctly under Vite; if the fetch fails
+// we fall back to a short inline string.
+let SKY_TEXT = '';
+async function loadSkyText(): Promise<void> {
+  try {
+    const url = new URL('./LoremIpsum.txt', import.meta.url).href;
+    const res = await fetch(url);
+    if (res.ok) {
+      SKY_TEXT = await res.text();
+      return;
+    }
+  } catch (e) {
+    // ignore and fall back
+  }
+  // Fallback short text
+  SKY_TEXT = 'Lorem ipsum dolor sit amet, consectetur adipiscing elit.';
+}
+
+// Precomputed sky grid of characters (rows of strings) used when compositing
+// clouds over the background text. This is computed each frame by
+// `drawSkyTextBackground` and consumed by `drawClouds`.
+let skyGrid: string[] = [];
+let skyGridCols = 0;
+let skyGridRows = 0;
+
+function drawSkyTextBackground(s: GameState): void {
+  // Prepare and render the skyGrid (characters laid out in a grid) from SKY_TEXT.
+  // The grid spans from the cloud startY down to the ground so the sky text
+  // appears both behind clouds and in the area between clouds and ground.
+  if (!SKY_TEXT) return; // not loaded yet
+  const groundY = travelerGroundY(s);
+  if (groundY <= 0) return;
+
+  const size = sz(W / 60, 11, 15);
+  const f = fnt(size, 700);
+  const lineH = Math.ceil(size * 1.2);
+
+  const charW = Math.max(4, renderer.measureWidth('M', f));
+  const hudH = sz(W / 70, 10, 14) + 20;
+  const startY = hudH + 5; // matches drawClouds hudH+5
+  const skyHeight = Math.max(0, groundY - startY);
+  const cols = Math.max(1, Math.floor(CANVAS_W / charW));
+  const rows = Math.max(1, Math.floor(skyHeight / lineH));
+
+  // If grid size hasn't changed we can keep previous content.
+  if (cols === skyGridCols && rows === skyGridRows && skyGrid.length > 0) return;
+
+  skyGridCols = cols; skyGridRows = rows;
+  skyGrid = [];
+
+  // Flatten the SKY_TEXT into a stream of characters (including spaces)
+  const textChars = SKY_TEXT.replace(/\s+/g, ' ').trim() + ' ';
+  let idx = 0;
+  for (let r = 0; r < rows; r++) {
+    let rowStr = '';
+    for (let c = 0; c < cols; c++) {
+      rowStr += textChars[idx % textChars.length];
+      idx++;
+    }
+    skyGrid.push(rowStr);
+  }
+
+  // Render the full sky grid (behind clouds)
+  ctx.save();
+  ctx.globalAlpha = 0.95;
+  ctx.fillStyle = COLORS.dim;
+  for (let r = 0; r < rows; r++) {
+    const line = skyGrid[r] || ' '.repeat(cols);
+    const block = renderer.getBlock(line, f, lineH);
+    renderer.drawBlock(ctx, block, 0, startY + r * lineH, { color: COLORS.dim, alpha: 0.95 });
+  }
+  ctx.restore();
+}
 
 // Particle system for cloud source field
 const FIELD_OVERSAMPLE = 2;
@@ -433,8 +513,8 @@ let spriteCache = new Map<number, HTMLCanvasElement>();
 // --- Particle type weights (easy to change / extend) ---
 // Keys are particle type names; values are relative weights (do not need to sum to 1).
 const PARTICLE_TYPE_WEIGHTS: Record<string, number> = {
-  rain: 0.00,
-  snow: 0.85,
+  rain: 0.60,
+  snow: 0.25,
   hail: 0.15,
 };
 
@@ -782,31 +862,111 @@ function drawClouds(s: GameState): void {
   const hudH  = sz(W / 70, 10, 14) + 20;
   const size  = sz(W / 75, 9, 14);
   const lineH = Math.round(size * 1.35);
-  const f = cloudFnt(size, 700);
-  const charW = renderer.measureWidth('M', f);
+  // Use the same visible font as the sky text so characters line up
+  const f = fnt(size, 700);
+  const charW = Math.max(4, renderer.measureWidth('M', f));
   const cols = Math.max(1, Math.floor(CANVAS_W / charW));
   const rows = Math.max(1, Math.floor(CANVAS_H / lineH));
   const startY = hudH + 5; // align with the source field
   const startX = 0;
   const fieldCellW = CANVAS_W / cols;
   const fieldCellH = CANVAS_H / rows;
+
+  // Ensure skyGrid matches the grid dimensions
+  if (skyGridCols !== cols || skyGridRows !== rows) drawSkyTextBackground(s);
+
   for (let r = 0; r < rows; r++) {
-    let line = '';
+    const skyRow = skyGrid[r] ?? ' '.repeat(cols);
+  let cloudLine = '';
+  let hasCloud = false;
+  const pTypeArr: Array<ParticleType | undefined> = [];
+
     for (let c = 0; c < cols; c++) {
       const fx = Math.min(CANVAS_W - 1, (c + 0.5) * fieldCellW);
       const fy = Math.min(CANVAS_H - 1, (r + 0.5) * fieldCellH);
       const brightness = sampleBrightness(fx, fy);
       if (brightness < 0.05) {
-        line += ' ';
-      } else {
-        const index = brightnessToCharsetIndex(brightness);
-        line += CLOUD_CHARSET[index] || ' ';
+        cloudLine += ' ';
+        pTypeArr.push(undefined);
+        continue;
+      }
+      hasCloud = true;
+
+      // Prefer particle-type stamped in the grid to choose charset per-cell
+      let pType: ParticleType | undefined = undefined;
+      if (particleTypeField) {
+        const gx = Math.floor(fx * FIELD_SCALE_X);
+        const gy = Math.floor(fy * FIELD_SCALE_Y);
+        if (gx >= 0 && gx < FIELD_COLS && gy >= 0 && gy < FIELD_ROWS) {
+          const val = particleTypeField[gy * FIELD_COLS + gx];
+          for (const key of PARTICLE_TYPE_KEYS) {
+            if (PARTICLE_TYPE_ORDINAL[key] === val) { pType = key as ParticleType; break; }
+          }
+        }
+      }
+
+      const charset = (pType ? CLOUD_CHARSETS[pType] : CLOUD_CHARSET) || CLOUD_CHARSET;
+      const adjusted = Math.sqrt(brightness);
+      const idx = Math.min(Math.max(Math.floor(adjusted * (charset.length - 1)), 0), charset.length - 1);
+      const ch = charset[idx] || ' ';
+      cloudLine += ch;
+      pTypeArr.push(pType);
+    }
+
+    // Draw cloud overlay runs with per-type colors. We group contiguous
+    // cloud cells by particle type and draw each run separately so the
+    // glyphs can be tinted per-type efficiently.
+    if (hasCloud) {
+      let runStart = -1;
+      let runType: ParticleType | 'mixed' | undefined = undefined;
+      for (let i = 0; i < cols; i++) {
+        const t = pTypeArr[i];
+        if (t === undefined) {
+          // flush any existing run
+          if (runStart !== -1) {
+            const substr = cloudLine.slice(runStart, i);
+            const x = startX + runStart * charW;
+            const color = runType === 'snow' ? COLORS.cloudSnow : runType === 'hail' ? COLORS.cloudHail : COLORS.cloudRain;
+            const glowFactor = runType === 'snow' ? 0.9 : runType === 'hail' ? 0.6 : 1.0;
+            const glowBlur = Math.max(6, Math.round(size * 1.6 * glowFactor));
+            const block = renderer.getBlock(substr, f, lineH);
+            renderer.drawBlock(ctx, block, x, startY + r * lineH, { color, shadowColor: color, shadowBlur: glowBlur, alpha: 0.6 });
+            renderer.drawBlock(ctx, block, x, startY + r * lineH, { color, alpha: 1 });
+            runStart = -1; runType = undefined;
+          }
+          continue;
+        }
+        // start a new run if needed
+        if (runStart === -1) {
+          runStart = i;
+          runType = t;
+        } else if (runType !== t) {
+          // flush previous run
+          const substr = cloudLine.slice(runStart, i);
+          const x = startX + runStart * charW;
+          const color = runType === 'snow' ? COLORS.cloudSnow : runType === 'hail' ? COLORS.cloudHail : COLORS.cloudRain;
+          const glowFactor = runType === 'snow' ? 0.9 : runType === 'hail' ? 0.6 : 1.0;
+          const glowBlur = Math.max(6, Math.round(size * 1.6 * glowFactor));
+          const block = renderer.getBlock(substr, f, lineH);
+          renderer.drawBlock(ctx, block, x, startY + r * lineH, { color, shadowColor: color, shadowBlur: glowBlur, alpha: 0.6 });
+          renderer.drawBlock(ctx, block, x, startY + r * lineH, { color, alpha: 1 });
+          // start new
+          runStart = i;
+          runType = t;
+        }
+      }
+      // flush tail run
+      if (runStart !== -1) {
+        const substr = cloudLine.slice(runStart, cols);
+        const x = startX + runStart * charW;
+        const color = runType === 'snow' ? COLORS.cloudSnow : runType === 'hail' ? COLORS.cloudHail : COLORS.cloudRain;
+        const glowFactor = runType === 'snow' ? 0.9 : runType === 'hail' ? 0.6 : 1.0;
+        const glowBlur = Math.max(6, Math.round(size * 1.6 * glowFactor));
+        const block = renderer.getBlock(substr, f, lineH);
+        renderer.drawBlock(ctx, block, x, startY + r * lineH, { color, shadowColor: color, shadowBlur: glowBlur, alpha: 0.6 });
+        renderer.drawBlock(ctx, block, x, startY + r * lineH, { color, alpha: 1 });
       }
     }
-    const block = renderer.getBlock(line, f, lineH);
-    renderer.drawBlock(ctx, block, startX, startY + r * lineH, {
-      color: '#2a5070', shadowColor: '#3a6090', shadowBlur: 8, alpha: 0.9,
-    });
   }
 }
 
