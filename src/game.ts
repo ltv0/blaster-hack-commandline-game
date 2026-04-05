@@ -273,6 +273,9 @@ export interface GameState {
   doublePointsActive: boolean;
   slowMotionActive: boolean;
   findBoostActive: boolean;
+  speedBoostActive: boolean;
+  invincibilityActive: boolean;
+  powerUpTimers: Partial<Record<PowerUpType, number>>;
 
   // difficulty
   elapsed: number;
@@ -452,6 +455,9 @@ export function createInitialState(W: number, H: number): GameState {
     doublePointsActive: false,
     slowMotionActive: false,
     findBoostActive: false,
+    speedBoostActive: false,
+    invincibilityActive: false,
+    powerUpTimers: {},
 
     elapsed: 0,
     difficultyLevel: 0,
@@ -1018,6 +1024,53 @@ function clearHazards(state: GameState): void {
   }
 }
 
+function clearNearbyHazards(state: GameState): void {
+  const radius = Math.max(130, state.W * 0.17);
+  const radiusSq = radius * radius;
+  let writeIndex = 0;
+
+  for (let i = 0; i < state.hazards.length; i++) {
+    const h = state.hazards[i]!;
+    const dx = h.x - state.travelerX;
+    const dy = h.y - (state.travelerY + 10);
+    if (dx * dx + dy * dy <= radiusSq) {
+      releaseHazard(h);
+      continue;
+    }
+    state.hazards[writeIndex++] = h;
+  }
+  state.hazards.length = writeIndex;
+}
+
+function teleportPlayer(state: GameState): void {
+  const margin = 20;
+  const safeY = state.travelerBaseY;
+  const leftX = margin;
+  const rightX = state.W - margin;
+
+  let nearest: Hazard | null = null;
+  let best = Number.POSITIVE_INFINITY;
+  for (let i = 0; i < state.hazards.length; i++) {
+    const h = state.hazards[i]!;
+    const dx = h.x - state.travelerX;
+    const dy = h.y - safeY;
+    const d2 = dx * dx + dy * dy;
+    if (d2 < best) {
+      best = d2;
+      nearest = h;
+    }
+  }
+
+  if (!nearest) {
+    state.travelerX = state.W * 0.5;
+    return;
+  }
+
+  const distLeft = Math.abs(nearest.x - leftX);
+  const distRight = Math.abs(nearest.x - rightX);
+  state.travelerX = distLeft > distRight ? leftX : rightX;
+}
+
 function clearScreen(state: GameState): void {
   for (let i = 0; i < state.hazards.length; i++) {
     releaseHazard(state.hazards[i]!);
@@ -1045,6 +1098,8 @@ function scoreWithModifiers(state: GameState, basePoints: number): number {
 
 const powerUpRuntime: PowerUpRuntime = {
   clearHazards,
+  clearNearbyHazards,
+  teleportPlayer,
   restoreHealth,
   scoreWithModifiers,
   spawnScorePopup,
@@ -1239,7 +1294,8 @@ function updatePlaying(state: GameState, dt: number): void {
   // Traveler automatic left-right movement — ramps with both level and elapsed time
   const levelSpeed = 120 + state.difficultyLevel * 24;
   const timeSpeedBoost = Math.min(140, state.elapsed * 2.2);
-  const maxSpeed = Math.min(420, levelSpeed + timeSpeedBoost);
+  const speedBoostFactor = state.speedBoostActive ? 1.5 : 1;
+  const maxSpeed = Math.min(420, (levelSpeed + timeSpeedBoost) * speedBoostFactor);
   state.travelerMaxSpeed = maxSpeed;
   if (state.travelerVX === 0) state.travelerVX = maxSpeed; // start moving on game begin
 
@@ -1347,7 +1403,7 @@ function updatePlaying(state: GameState, dt: number): void {
     if (!removeHazard && !h.blocked) {
       const dx = Math.abs(h.x - state.travelerX);
       if (dx < 22 && h.y >= state.travelerY - 8 && h.y <= state.travelerY + 38) {
-        if (!state.shieldActive && state.hitCooldown <= 0) {
+        if (!state.shieldActive && !state.invincibilityActive && state.hitCooldown <= 0) {
           let damage = 1;
           if (h.type === 'hail') damage = 2;
           const willDie = state.hp - damage <= 0;

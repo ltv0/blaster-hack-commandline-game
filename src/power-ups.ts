@@ -1,6 +1,11 @@
 import type { GameState } from './game.ts';
 
 export type PowerUpType =
+  | 'cd'
+  | 'rm'
+  | 'zip'
+  | 'unzip'
+  | 'sudo'
   | 'shield'
   | 'doublePoints'
   | 'slowMotion'
@@ -21,6 +26,8 @@ export interface PowerUpPickup {
 
 export interface PowerUpRuntime {
   clearHazards: (state: GameState) => void;
+  clearNearbyHazards: (state: GameState) => void;
+  teleportPlayer: (state: GameState) => void;
   restoreHealth: (state: GameState) => void;
   scoreWithModifiers: (state: GameState, basePoints: number) => number;
   spawnScorePopup: (state: GameState, x: number, y: number, points: number, combo: number) => void;
@@ -30,15 +37,19 @@ const POWER_UP_THRESHOLD = 40;
 const POWER_UP_PICKUP_TTL = 12;
 
 const POWER_UP_WEIGHTS: Array<{ type: PowerUpType; weight: number }> = [
-  { type: 'shield', weight: 16 },
-  { type: 'doublePoints', weight: 16 },
-  { type: 'slowMotion', weight: 14 },
-  { type: 'healthBoost', weight: 12 },
-  { type: 'hazardClear', weight: 11 },
-  { type: 'findBoost', weight: 9 },
+  { type: 'cd', weight: 14 },
+  { type: 'rm', weight: 13 },
+  { type: 'zip', weight: 12 },
+  { type: 'unzip', weight: 10 },
+  { type: 'sudo', weight: 5 }, // Reduced weight to make it less likely
 ];
 
 const POWER_UP_TEXT: Record<PowerUpType, string> = {
+  cd: 'CD',
+  rm: 'RM',
+  zip: 'ZIP',
+  unzip: 'UNZIP',
+  sudo: 'ADMIN',
   shield: 'SHIELD',
   doublePoints: '*2X POINTS*',
   slowMotion: 'SNAIL...',
@@ -53,6 +64,8 @@ export function powerUpLabel(type: PowerUpType): string {
 
 function powerUpDuration(type: PowerUpType): number {
   switch (type) {
+    case 'zip': return 5;
+    case 'sudo': return 10;
     case 'shield': return 5;
     case 'doublePoints': return 10;
     case 'slowMotion': return 8;
@@ -73,47 +86,98 @@ function chooseRandomPowerUp(): PowerUpType {
   return POWER_UP_WEIGHTS[POWER_UP_WEIGHTS.length - 1]!.type;
 }
 
+function chooseRandomPlan2BonusPowerUp(): PowerUpType {
+  const choices: PowerUpType[] = ['cd', 'rm', 'zip', 'sudo'];
+  return choices[Math.floor(Math.random() * choices.length)]!;
+}
+
 function resetTimedPowerUps(state: GameState): void {
   state.shieldActive = false;
   state.doublePointsActive = false;
   state.slowMotionActive = false;
   state.findBoostActive = false;
+  state.speedBoostActive = false;
+  state.invincibilityActive = false;
+  state.powerUpTimers = {};
+}
+
+function setTimedPowerUpState(state: GameState, type: PowerUpType, active: boolean): void {
+  switch (type) {
+    case 'shield':
+      state.shieldActive = active;
+      break;
+    case 'doublePoints':
+      state.doublePointsActive = active;
+      break;
+    case 'slowMotion':
+      state.slowMotionActive = active;
+      break;
+    case 'findBoost':
+      state.findBoostActive = active;
+      break;
+    case 'zip':
+      state.speedBoostActive = active;
+      break;
+    case 'sudo':
+      state.invincibilityActive = active;
+      break;
+    default:
+      break;
+  }
+}
+
+function isTimedPowerUp(type: PowerUpType): boolean {
+  return (
+    type === 'shield' ||
+    type === 'doublePoints' ||
+    type === 'slowMotion' ||
+    type === 'findBoost' ||
+    type === 'zip' ||
+    type === 'sudo'
+  );
 }
 
 export function activatePowerUp(state: GameState, type: PowerUpType, runtime: PowerUpRuntime): void {
-  resetTimedPowerUps(state);
   state.activePowerUp = type;
-  state.powerUpTimer = powerUpDuration(type);
   state.powerUpText = powerUpLabel(type);
-  state.powerUpTextTimer = Math.max(1.3, state.powerUpTimer);
+  state.powerUpTextTimer = Math.max(1.3, powerUpDuration(type));
   state.powerUpFlashTimer = Math.max(state.powerUpFlashTimer, 0.28);
 
-  switch (type) {
-    case 'shield':
-      state.shieldActive = true;
-      break;
-    case 'doublePoints':
-      state.doublePointsActive = true;
-      break;
-    case 'slowMotion':
-      state.slowMotionActive = true;
-      break;
-    case 'findBoost':
-      state.findBoostActive = true;
-      break;
-    case 'healthBoost':
-      runtime.restoreHealth(state);
-      break;
-    case 'hazardClear':
-      runtime.clearHazards(state);
-      break;
+  if (isTimedPowerUp(type)) {
+    const current = state.powerUpTimers[type] ?? 0;
+    const next = current + powerUpDuration(type);
+    state.powerUpTimers[type] = next;
+    setTimedPowerUpState(state, type, true);
+  } else {
+    switch (type) {
+      case 'cd':
+        runtime.teleportPlayer(state);
+        break;
+      case 'rm':
+        runtime.clearNearbyHazards(state);
+        break;
+      case 'unzip':
+        activatePowerUp(state, chooseRandomPlan2BonusPowerUp(), runtime);
+        break;
+      case 'healthBoost':
+        runtime.restoreHealth(state);
+        break;
+      case 'hazardClear':
+        runtime.clearHazards(state);
+        break;
+      default:
+        break;
+    }
   }
+
+  state.powerUpTimer = Math.max(0, ...Object.values(state.powerUpTimers));
 
   state.audioEvents.push({ kind: 'powerup' });
 }
 
 export function maybeSpawnComboPowerUp(state: GameState): void {
-  if (state.combo < POWER_UP_THRESHOLD) return;
+  const comboThreshold = state.difficultyLevel < 4 ? POWER_UP_THRESHOLD / 2 : POWER_UP_THRESHOLD;
+  if (state.combo < comboThreshold) return;
 
   const type = chooseRandomPowerUp();
   const margin = Math.max(40, Math.min(120, state.W * 0.12));
@@ -185,12 +249,21 @@ export function updatePowerUpPickups(state: GameState, dt: number, runtime: Powe
 }
 
 export function updatePowerUpTimers(state: GameState, dt: number): void {
-  if (state.powerUpTimer > 0) {
-    state.powerUpTimer = Math.max(0, state.powerUpTimer - dt);
-    if (state.powerUpTimer <= 0) {
-      resetTimedPowerUps(state);
-      state.activePowerUp = null;
+  let maxTimer = 0;
+  const entries = Object.entries(state.powerUpTimers) as Array<[PowerUpType, number]>;
+  for (const [type, timer] of entries) {
+    const next = Math.max(0, timer - dt);
+    if (next <= 0) {
+      delete state.powerUpTimers[type];
+      setTimedPowerUpState(state, type, false);
+    } else {
+      state.powerUpTimers[type] = next;
+      if (next > maxTimer) maxTimer = next;
     }
+  }
+  state.powerUpTimer = maxTimer;
+  if (maxTimer <= 0) {
+    state.activePowerUp = null;
   }
 
   if (state.powerUpTextTimer > 0) {
