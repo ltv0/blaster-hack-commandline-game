@@ -1791,6 +1791,9 @@ function startGame(state: GameState): void {
   state.phase = 'playing';
   state.umbrellaVY = 0;
   state._umbrellaActualY = state.umbrellaY;
+  if (typeof window !== 'undefined' && typeof (window as any).initParticleSystem === 'function') {
+    (window as any).initParticleSystem(state);
+  }
 }
 
 function restartGame(state: GameState): void {
@@ -1803,4 +1806,10 @@ function restartGame(state: GameState): void {
   Object.assign(state, fresh);
   state.umbrellaVY = 0;
   state._umbrellaActualY = state.umbrellaY;
+  if (typeof window !== 'undefined' && typeof (window as any).initParticleSystem === 'function') {
+    (window as any).initParticleSystem(state);
+  }
+  if (typeof window !== 'undefined' && typeof (window as any).updateCloudEmitPoints === 'function') {
+    (window as any).updateCloudEmitPoints(state);
+  }
 }
