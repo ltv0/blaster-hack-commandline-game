@@ -150,7 +150,7 @@ let bgHoverTargetX = 0;
 let bgHoverTargetY = 0;
 
 function buildAsciiBackground(): void {
-  const size = sz(W / 95, 15, 15);
+  const size = sz(W / 95, 20, 20);
   bgFont = fnt(size);
   bgCellW = renderer.measureWidth('M', bgFont) || 8;
   bgCellH = size * 1.3;
@@ -662,7 +662,7 @@ function drawGame(s: GameState): void {
   const repulsors = buildBackgroundRepulsors(s);
   const occluders = buildBackgroundOccluders(s);
   const circleObstacles = buildBackgroundCircleObstacles(s);
-  drawAsciiBackground(s.bgStarOffset * 0.3, 0.14, '#5f9f7b', repulsors, occluders, circleObstacles);
+  drawAsciiBackground(s.bgStarOffset * 0.3, 0.21, '#a9f7c4', repulsors, occluders, circleObstacles);
   if (SHOW_CLOUD_SOURCE_FIELD) drawSourceField();
   drawStars(s);
   drawClouds(s);
