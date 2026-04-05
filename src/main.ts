@@ -445,11 +445,11 @@ function buildBackgroundOccluders(s: GameState): BgOccluder[] {
   // The circle obstacle adds the wrap glow around it; the rect ensures nothing
   // draws inside the sprite itself.
   const travelerSize = sz(W / 40, 14, 22);
-  const travelerW = travelerSize * 2.2;
-  const travelerH = travelerSize * 2.75;
+  const travelerW = travelerSize * 1.7;
+  const travelerH = travelerSize * 2.25;
   out.push({
     x: s.travelerX - travelerW * 0.5,
-    y: s.travelerY + travelerSize * 0.22,
+    y: s.travelerY + travelerSize * 0.45,
     w: travelerW,
     h: travelerH,
   });
@@ -500,9 +500,17 @@ function buildBackgroundCircleObstacles(s: GameState): BgCircleObstacle[] {
   const travelerSize = sz(W / 40, 14, 22);
   out.push({
     cx: s.travelerX,
-    cy: s.travelerY + travelerSize * 1.05,
-    rx: travelerSize * 1.05,
-    ry: travelerSize * 1.25,
+    cy: s.travelerY + travelerSize * 0.32,
+    rx: travelerSize * 0.74,
+    ry: travelerSize * 0.66,
+    hPad: 0,
+    vPad: 0,
+  });
+  out.push({
+    cx: s.travelerX,
+    cy: s.travelerY + travelerSize * 1.45,
+    rx: travelerSize * 0.92,
+    ry: travelerSize * 1.28,
     hPad: 0,
     vPad: 0,
   });
@@ -770,9 +778,15 @@ function calculateGlyphOffset(glyphX: number, glyphY: number, s: GameState): { d
   const travelerSize = sz(W / 40, 14, 22);
   objects.push({
     cx: s.travelerX,
-    cy: s.travelerY + travelerSize * 0.95,
-    rx: travelerSize * 1.2,
-    ry: travelerSize * 1.0,
+    cy: s.travelerY + travelerSize * 0.32,
+    rx: travelerSize * 0.74,
+    ry: travelerSize * 0.66,
+  });
+  objects.push({
+    cx: s.travelerX,
+    cy: s.travelerY + travelerSize * 1.45,
+    rx: travelerSize * 1.0,
+    ry: travelerSize * 1.36,
   });
 
   // ── Clouds: match buildBackgroundCircleObstacles exactly ──
@@ -1744,12 +1758,13 @@ function drawHeartExplosions(s: GameState): void {
   const size = sz(W / 70, 10, 16);
   const f = fnt(size);
   for (const h of s.heartExplosions) {
-    const block = renderer.getBlock(h.glyph, f, size * 1.5);
     const alpha = Math.max(0, h.life);
+    if (alpha < 0.03) continue;
+    const block = renderer.getBlock(h.glyph, f, size * 1.5);
     renderer.drawBlock(ctx, block, h.x, h.y, { 
       color: h.color, 
       shadowColor: h.color, 
-      shadowBlur: 8, 
+      shadowBlur: 5,
       align: 'center', 
       verticalAlign: 'middle', 
       alpha 
