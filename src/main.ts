@@ -725,7 +725,7 @@ function drawBoot(s: GameState): void {
 let SKY_TEXT = 'Lorem ipsum dolor sit amet, consectetur adipiscing elit. ';
 async function loadSkyText(): Promise<void> {
   try {
-    const url = new URL('./LoremIpsum.txt', import.meta.url).href;
+    const url = new URL('./CallofCthulhu.txt', import.meta.url).href;
     const res = await fetch(url);
     if (res.ok) {
       SKY_TEXT = await res.text();
