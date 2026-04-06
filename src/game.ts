@@ -2,7 +2,7 @@ import type { PowerUpPickup, PowerUpRuntime, PowerUpType } from './power-ups.ts'
 import {
   maybeSpawnComboPowerUp,
   reduceSudoTimer,
-  stripTimedPowerUps,
+  halfOtherTimedPowerUpTimers,
   updatePowerUpPickups,
   updatePowerUpTimers,
 } from './power-ups.ts';
@@ -1449,10 +1449,10 @@ function updatePlaying(state: GameState, dt: number): void {
       const dx = Math.abs(h.x - state.travelerX);
       if (dx < 22 && h.y >= state.travelerY - 8 && h.y <= state.travelerY + 38) {
         if (h.type === 'purpleRain') {
-          // Only drain SUDO if not invincible and no shield active
-          if (!state.invincibilityActive && !state.shieldActive) {
-            reduceSudoTimer(state, 1);
-            stripTimedPowerUps(state);
+          // Only drain SUDO when invincibility is active and no shield is active
+          if (state.invincibilityActive && !state.shieldActive) {
+            reduceSudoTimer(state, 0.5);
+            halfOtherTimedPowerUpTimers(state);
           }
         }
         if (!state.invincibilityActive && state.hitCooldown <= 0) {

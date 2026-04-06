@@ -345,6 +345,31 @@ export function reduceSudoTimer(state: GameState, seconds: number): void {
   state.powerUpTimer = Math.max(0, ...Object.values(state.powerUpTimers));
 }
 
+export function halfOtherTimedPowerUpTimers(state: GameState): void {
+  let maxTimer = 0;
+  const entries = Object.entries(state.powerUpTimers) as Array<[PowerUpType, number]>;
+  for (const [type, timer] of entries) {
+    if (type === 'sudo') {
+      if (timer > maxTimer) maxTimer = timer;
+      continue;
+    }
+
+    const next = Math.max(0, timer * 0.5);
+    if (next <= 0) {
+      delete state.powerUpTimers[type];
+      setTimedPowerUpState(state, type, false);
+      if (state.activePowerUp === type) {
+        state.activePowerUp = state.powerUpTimers.sudo ? 'sudo' : null;
+      }
+    } else {
+      state.powerUpTimers[type] = next;
+      if (next > maxTimer) maxTimer = next;
+    }
+  }
+
+  state.powerUpTimer = Math.max(maxTimer, state.powerUpTimers.sudo ?? 0, 0);
+}
+
 export function spawnBouncingPowerUp(state: GameState, type: PowerUpType, x: number, y: number): void {
   const id = state.powerUpPickupIdCounter++;
   const baseY = y;
