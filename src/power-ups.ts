@@ -62,7 +62,7 @@ const POWER_UP_TEXT: Record<PowerUpType, string> = {
   zip: 'ZIP',
   unzip: 'UNZIP',
   sudo: 'SUDO',
-  shield: '<|SHIELD',
+  shield: '|SHIELD>',
   doublePoints: '*2X POINTS*',
   slowMotion: 'SNAIL...',
   healthBoost: '+HEALTH+',

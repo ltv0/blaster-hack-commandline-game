@@ -135,10 +135,16 @@ function buildStars(w: number, h: number, count = 130): void {
   stars = Array.from({ length: count }, () => ({
     x: Math.random() * w,
     y: Math.random() * h * 0.82,
-    size: Math.random() < 0.15 ? 2 : 1,
+    size: 2 + Math.floor(Math.random() * 9),
     speed: 0.3 + Math.random() * 0.7,
     brightness: 0.4 + Math.random() * 0.6,
   }));
+}
+
+if (typeof window !== 'undefined') {
+  (window as any).rebuildStars = (): void => {
+    buildStars(W, H);
+  };
 }
 
 // ─── ASCII background ─────────────────────────────────────────────────────────
@@ -965,9 +971,9 @@ function drawGame(s: GameState): void {
   const repulsors = buildBackgroundRepulsors(s);
   const occluders = buildBackgroundOccluders(s);
   const circleObstacles = buildBackgroundCircleObstacles(s);
+  drawStars(s);
   drawAsciiBackground(s.bgStarOffset * 0.3, 0.15, '#8bc98b', repulsors, occluders, circleObstacles, true);
   if (SHOW_CLOUD_SOURCE_FIELD) drawSourceField();
-  drawStars(s);
   drawClouds(s);
   drawGround(s);
   drawTraveler(s);
@@ -990,14 +996,19 @@ function drawGame(s: GameState): void {
 
 // Stars
 function drawStars(s: GameState): void {
-  const groundY = travelerGroundY(s);
   ctx.save();
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  let activeSize = -1;
   for (const star of stars) {
-    const y = (star.y + s.bgStarOffset * star.speed) % groundY;
     const twinkle = 0.7 + 0.3 * Math.sin(s.elapsed * (1.2 + star.speed) + star.x * 0.05);
     ctx.globalAlpha = star.brightness * twinkle;
     ctx.fillStyle = star.size > 1 ? '#8899aa' : '#4a6070';
-    ctx.fillRect(Math.round(star.x), Math.round(y), star.size, star.size);
+    if (star.size !== activeSize) {
+      activeSize = star.size;
+      ctx.font = `${activeSize}px ${FONT_FAMILY}`;
+    }
+    ctx.fillText('★', Math.round(star.x), Math.round(star.y));
   }
   ctx.restore();
 }

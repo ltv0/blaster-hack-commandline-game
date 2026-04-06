@@ -71,7 +71,6 @@ function releaseParticle(particle: Particle): void {
   if (particlePool.length >= PARTICLE_POOL_MAX) return;
   particlePool.push(particle);
 }
-// G��G��G�� Types G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��
 
 export type GamePhase = 'boot' | 'playing' | 'dead';
 
@@ -1295,6 +1294,9 @@ function updatePlaying(state: GameState, dt: number): void {
       if (typeof (window as any).updateCloudEmitPoints === 'function') {
         (window as any).updateCloudEmitPoints(state);
       }
+      if (typeof (window as any).rebuildStars === 'function') {
+        (window as any).rebuildStars();
+      }
     }
   }
   if (state.levelUpTimer > 0) state.levelUpTimer -= dt;
@@ -1801,6 +1803,9 @@ function startGame(state: GameState): void {
   if (typeof window !== 'undefined' && typeof (window as any).initParticleSystem === 'function') {
     (window as any).initParticleSystem(state);
   }
+  if (typeof window !== 'undefined' && typeof (window as any).rebuildStars === 'function') {
+    (window as any).rebuildStars();
+  }
 }
 
 function restartGame(state: GameState): void {
@@ -1819,5 +1824,8 @@ function restartGame(state: GameState): void {
   }
   if (typeof window !== 'undefined' && typeof (window as any).updateCloudEmitPoints === 'function') {
     (window as any).updateCloudEmitPoints(state);
+  }
+  if (typeof window !== 'undefined' && typeof (window as any).rebuildStars === 'function') {
+    (window as any).rebuildStars();
   }
 }
