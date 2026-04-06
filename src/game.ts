@@ -1464,6 +1464,13 @@ function updatePlaying(state: GameState, dt: number): void {
             damage = 0;
             state.powerUpText = 'SHIELD BROKEN!';
             state.powerUpTextTimer = Math.max(state.powerUpTextTimer, 1.5);
+            if ((state.powerUpTimers.shield ?? 0) > 0) {
+              delete state.powerUpTimers.shield;
+            }
+            if (state.activePowerUp === 'shield') {
+              state.activePowerUp = null;
+            }
+            state.powerUpTimer = Math.max(0, ...Object.values(state.powerUpTimers));
           }
 
           const willDie = state.hp - damage <= 0;

@@ -19,7 +19,7 @@ const BG_CHARS = [
   'x','o','#','@','%',
 ]
 
-const SKY_TEXT_FILES = import.meta.glob('../txtrotation/*.txt', { as: 'raw' }) as Record<string, () => Promise<string>>
+const SKY_TEXT_FILES = import.meta.glob('../txtrotation/*.txt', { query: '?raw', import: 'default' }) as Record<string, () => Promise<string>>
 
 let stars: Star[] = []
 let bgCells: BgCell[] = []
@@ -86,8 +86,8 @@ export async function loadSkyText(): Promise<void> {
     return
   }
 
-  const rotationIndex = Math.floor(Date.now() / 86400000) % entries.length
-  const [, loader] = entries[rotationIndex]
+  const randomIndex = Math.floor(Math.random() * entries.length)
+  const [, loader] = entries[randomIndex]
 
   try {
     const text = await loader()

@@ -230,7 +230,7 @@ export function maybeSpawnComboPowerUp(state: GameState): void {
   const type = chooseRandomPowerUp();
   const margin = Math.max(40, Math.min(120, state.W * 0.12));
   const x = margin + Math.random() * Math.max(1, state.W - margin * 2);
-  const y = state.travelerBaseY - (12 + Math.random() * 4); // Reduced offset to spawn closer to the ground
+  const y = state.travelerBaseY - (6 + Math.random() * 2); // Spawn closer to the ground
 
   state.powerUpPickups.push({
     id: state.powerUpPickupIdCounter++,
