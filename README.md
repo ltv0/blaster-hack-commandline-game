@@ -2,6 +2,8 @@
 
 Command-line themed browser game where you drag an umbrella to protect a traveler from rain, snow, and hail.
 
+Play the hosted version at https://www.ltv0.me/blaster-hack-commandline-game/
+
 ## Features
 - Terminal-style boot prompt and HUD
 - Mouse and touch umbrella controls

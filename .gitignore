@@ -41,6 +41,7 @@ Thumbs.db
 
 # Project-specific (already present)
 .roo
+.roo/mcp.json
 powerupplan.md
 powerupplan2.md
 plan.md
