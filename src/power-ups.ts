@@ -126,12 +126,13 @@ export function stripTimedPowerUps(state: GameState): void {
   state.findBoostActive = false;
   state.speedBoostActive = false;
   state.powerUpTimers = sudoTimer > 0 ? { sudo: sudoTimer } : {};
+  state.invincibilityActive = sudoTimer > 0;
 
   state.powerUpTimer = 0;
   state.powerUpText = 'SYSTEM PURGE';
   state.powerUpTextTimer = Math.max(state.powerUpTextTimer, 1.1);
   state.powerUpFlashTimer = Math.max(state.powerUpFlashTimer, 0.5);
-  state.activePowerUp = sudoTimer > 0 || state.invincibilityActive ? 'sudo' : null;
+  state.activePowerUp = sudoTimer > 0 ? 'sudo' : null;
 }
 
 function setTimedPowerUpState(state: GameState, type: PowerUpType, active: boolean): void {
