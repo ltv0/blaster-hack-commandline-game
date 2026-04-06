@@ -86,8 +86,8 @@ export async function loadSkyText(): Promise<void> {
     return
   }
 
-  const randomIndex = Math.floor(Math.random() * entries.length)
-  const [, loader] = entries[randomIndex]
+  const rotationIndex = Math.floor(Date.now() / 86400000) % entries.length
+  const [, loader] = entries[rotationIndex]
 
   try {
     const text = await loader()
@@ -265,8 +265,6 @@ export function drawAsciiBackground(
     }
   }
 
-  const cascadeStride = Math.max(1, Math.floor(bgCols / 4))
-
   for (let row = 0; row < bgRows; row++) {
     const y = row * bgCellH - scrolledY
     if (y > maxY + bgCellH) continue
@@ -354,12 +352,7 @@ export function drawAsciiBackground(
         * (1 + wrapT * 0.55)
       if (alpha < 0.004) continue
 
-      const charIndex = textChars.length > 0
-        ? (idx + row * cascadeStride) % textChars.length
-        : idx
-      const charToUse = textChars.length > 0
-        ? textChars[charIndex]!
-        : BG_CHARS[cell.charIndex!]
+      const charToUse = textChars.length > 0 ? textChars[idx % textChars.length]! : BG_CHARS[cell.charIndex!]
       ctx.globalAlpha = alpha
       ctx.fillText(charToUse, drawX, drawY)
     }

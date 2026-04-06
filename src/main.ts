@@ -659,8 +659,8 @@ let PARTICLE_TYPE_WEIGHTS: Record<string, number> = {
   hail: 0.0,
 };
 
-const SNOW_UNLOCK_LEVEL = 2;
-const HAIL_UNLOCK_LEVEL = 5;
+const SNOW_UNLOCK_LEVEL = 3;
+const HAIL_UNLOCK_LEVEL = 6;
 
 // Update particle type weights as level increases
 function updateParticleTypeWeights(level: number) {
