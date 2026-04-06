@@ -6,6 +6,7 @@ import {
   updatePowerUpPickups,
   updatePowerUpTimers,
 } from './power-ups.ts';
+import { loadSkyText } from './rendering/background.ts';
 
 export { powerUpLabel } from './power-ups.ts';
 
@@ -14,6 +15,9 @@ const MAX_HAZARDS = 120;
 const MAX_PARTICLES = 180;
 const HAZARD_POOL_MAX = MAX_HAZARDS * 3;
 const PARTICLE_POOL_MAX = MAX_PARTICLES * 4;
+
+const SNOW_UNLOCK_LEVEL = 3;
+const HAIL_UNLOCK_LEVEL = 6;
 
 const hazardPool: Hazard[] = [];
 const particlePool: Particle[] = [];
@@ -628,20 +632,20 @@ function maintainClouds(state: GameState): void {
     if (level < 1) {
       type = 'rain';
     } else if (level === 1) {
-      // Only rain clouds at level 1
+      // Only rain clouds until level 2 / round 3
       type = 'rain';
     } else if (purpleRatio > 0 && Math.random() < purpleRatio) {
       type = 'purpleRain';
     } else {
-      // Pick the least-represented type
-      if (typeCounts.hail === 0 && level >= 2) {
+      // Pick the least-represented type, with snow and hail unlocking later.
+      if (typeCounts.hail === 0 && level >= HAIL_UNLOCK_LEVEL) {
         type = 'hail';
       } else if (typeCounts.rain <= typeCounts.snow && typeCounts.rain <= typeCounts.hail) {
         type = 'rain';
-      } else if (typeCounts.snow <= typeCounts.hail) {
+      } else if (typeCounts.snow <= typeCounts.hail && level >= SNOW_UNLOCK_LEVEL) {
         type = 'snow';
       } else {
-        type = 'hail';
+        type = 'rain';
       }
     }
     const x = Math.random() * W;
@@ -1295,7 +1299,7 @@ function updatePlaying(state: GameState, dt: number): void {
         (window as any).updateCloudEmitPoints(state);
       }
       if (typeof (window as any).rebuildStars === 'function') {
-        (window as any).rebuildStars();
+        (window as any).rebuildStars(state.W, state.H);
       }
     }
   }
@@ -1803,8 +1807,14 @@ function startGame(state: GameState): void {
   if (typeof window !== 'undefined' && typeof (window as any).initParticleSystem === 'function') {
     (window as any).initParticleSystem(state);
   }
+  if (typeof window !== 'undefined' && typeof (window as any).buildAsciiBackground === 'function') {
+    (window as any).buildAsciiBackground();
+  }
+  if (typeof window !== 'undefined' && typeof (window as any).updateCloudEmitPoints === 'function') {
+    (window as any).updateCloudEmitPoints(state);
+  }
   if (typeof window !== 'undefined' && typeof (window as any).rebuildStars === 'function') {
-    (window as any).rebuildStars();
+    (window as any).rebuildStars(state.W, state.H);
   }
 }
 
@@ -1818,7 +1828,11 @@ function restartGame(state: GameState): void {
   Object.assign(state, fresh);
   state.umbrellaVY = 0;
   state._umbrellaActualY = state.umbrellaY;
+  void loadSkyText();
   scheduleWindShift(state, true);
+  if (typeof window !== 'undefined' && typeof (window as any).buildAsciiBackground === 'function') {
+    (window as any).buildAsciiBackground();
+  }
   if (typeof window !== 'undefined' && typeof (window as any).initParticleSystem === 'function') {
     (window as any).initParticleSystem(state);
   }
@@ -1826,6 +1840,6 @@ function restartGame(state: GameState): void {
     (window as any).updateCloudEmitPoints(state);
   }
   if (typeof window !== 'undefined' && typeof (window as any).rebuildStars === 'function') {
-    (window as any).rebuildStars();
+    (window as any).rebuildStars(state.W, state.H);
   }
 }

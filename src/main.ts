@@ -1,9 +1,4 @@
-// Expose for game.ts
-if (typeof window !== 'undefined') {
-  (window as any).initParticleSystem = initParticleSystem;
-  (window as any).updateCloudEmitPoints = updateCloudEmitPoints;
-}
-import './style.css';
+import './style.css'
 import {
   createInitialState,
   update,
@@ -18,27 +13,25 @@ import {
   type GameState,
   type AudioEvent,
   type Cloud,
-} from './game.ts';
-import { PretextRenderer } from './pretext-renderer.ts';
+} from './game.ts'
+import { bindEvents } from './rendering/input.ts'
+import { buildStars, rebuildStars, drawStars, buildAsciiBackground, updateAsciiBackground, drawAsciiBackground, loadSkyText, getBackgroundHoverPosition, isBackgroundHoverActive, getBackgroundCellWidth, type BgOccluder, type BgRepulsor, type BgCircleObstacle, type BgInterval } from './rendering/background.ts'
+import { resumeAudio, handleAudioEvents } from './rendering/audio.ts'
+import { canvas, ctx, renderer, W, H, fnt, sz, setViewportSize } from './rendering/canvas.ts'
 
-const canvas = document.getElementById('game-canvas') as HTMLCanvasElement;
-const ctx = canvas.getContext('2d')!;
-const renderer = new PretextRenderer();
-
-let dpr = window.devicePixelRatio || 1;
-let W = 0;
-let H = 0;
-const GROUND_Y_RATIO = 0.91;
-const CLOUD_ART_LINES = 4;
-let frameBgGradient: CanvasGradient | null = null;
-let frameBgGradientHeight = -1;
+let dpr = window.devicePixelRatio || 1
+const GROUND_Y_RATIO = 0.91
+const CLOUD_ART_LINES = 4
+let frameBgGradient: CanvasGradient | null = null
+let frameBgGradientHeight = -1
 
 function resize(): void {
   dpr = window.devicePixelRatio || 1;
-  W = window.innerWidth;
-  H = window.innerHeight;
-  canvas.width = Math.round(W * dpr);
-  canvas.height = Math.round(H * dpr);
+  const newW = window.innerWidth;
+  const newH = window.innerHeight;
+  setViewportSize(newW, newH);
+  canvas.width = Math.round(newW * dpr);
+  canvas.height = Math.round(newH * dpr);
   canvas.style.width  = `${W}px`;
   canvas.style.height = `${H}px`;
   ctx.scale(dpr, dpr);
@@ -62,405 +55,8 @@ function resize(): void {
   }
 }
 
-const FONT_FAMILY = '"IBM Plex Mono", monospace';
-//const CLOUD_FONT_FAMILY = '"IBM Plex Sans", sans-serif'; for proportional
-const CLOUD_FONT_FAMILY = '"IBM Plex Mono", monospace';
-function fnt(size: number, weight: number = 400): string {
-  return `${weight} ${size}px ${FONT_FAMILY}`;
-}
-function sz(base: number, minV: number, maxV: number): number {
-  return Math.max(minV, Math.min(maxV, base));
-}
-
-
-let audioCtx: AudioContext | null = null;
-function getAudio(): AudioContext | null {
-  if (!audioCtx) { try { audioCtx = new AudioContext(); } catch { return null; } }
-  return audioCtx;
-}
-function resumeAudio(): void {
-  const a = getAudio();
-  if (a && a.state === 'suspended') a.resume();
-}
-function playTone(freq: number, type: OscillatorType, gainVal: number, duration: number, startTime?: number): void {
-  const a = getAudio(); if (!a) return;
-  const osc = a.createOscillator(); const gain = a.createGain();
-  osc.connect(gain); gain.connect(a.destination);
-  osc.type = type; osc.frequency.value = freq;
-  const t = startTime ?? a.currentTime;
-  gain.gain.setValueAtTime(gainVal, t);
-  gain.gain.exponentialRampToValueAtTime(0.0001, t + duration);
-  osc.start(t); osc.stop(t + duration + 0.01);
-}
-function playNoise(gainVal: number, duration: number, highpass = 800): void {
-  const a = getAudio(); if (!a) return;
-  const buf = a.createBuffer(1, a.sampleRate * duration, a.sampleRate);
-  const data = buf.getChannelData(0);
-  for (let i = 0; i < data.length; i++) data[i] = Math.random() * 2 - 1;
-  const src = a.createBufferSource(); src.buffer = buf;
-  const filter = a.createBiquadFilter(); filter.type = 'highpass'; filter.frequency.value = highpass;
-  const gain = a.createGain();
-  src.connect(filter); filter.connect(gain); gain.connect(a.destination);
-  gain.gain.setValueAtTime(gainVal, a.currentTime);
-  gain.gain.exponentialRampToValueAtTime(0.0001, a.currentTime + duration);
-  src.start(); src.stop(a.currentTime + duration + 0.01);
-}
-function handleAudioEvents(events: AudioEvent[]): void {
-  const a = getAudio(); if (!a) return;
-  for (const ev of events) {
-    switch (ev.kind) {
-      case 'block':
-        if (ev.hazardType === 'hail') { playNoise(0.12, 0.08, 1200); playTone(220, 'square', 0.06, 0.06); }
-        else if (ev.hazardType === 'snow') { playTone(880, 'sine', 0.04, 0.09); }
-        else { playNoise(0.07, 0.05, 2000); }
-        break;
-      case 'hit': playTone(110, 'sawtooth', 0.2, 0.15); playNoise(0.25, 0.12, 400); break;
-      case 'levelup': { const t = a.currentTime; playTone(330,'square',0.1,0.12,t); playTone(440,'square',0.1,0.12,t+0.12); playTone(550,'square',0.1,0.18,t+0.24); break; }
-      case 'death': playTone(220,'sawtooth',0.2,0.4); playTone(110,'sawtooth',0.15,0.6); playNoise(0.3,0.5,200); break;
-      case 'powerup': {
-        const t = a.currentTime;
-        playTone(660, 'square', 0.08, 0.08, t);
-        playTone(880, 'square', 0.08, 0.12, t + 0.09);
-        playTone(990, 'triangle', 0.06, 0.18, t + 0.2);
-        break;
-      }
-    }
-  }
-}
 
 // ─── Stars ────────────────────────────────────────────────────────────────────
-interface Star { x: number; y: number; size: number; speed: number; brightness: number }
-let stars: Star[] = [];
-function buildStars(w: number, h: number, count = 130): void {
-  stars = Array.from({ length: count }, () => ({
-    x: Math.random() * w,
-    y: Math.random() * h * 0.82,
-    size: 2 + Math.floor(Math.random() * 9),
-    speed: 0.3 + Math.random() * 0.7,
-    brightness: 0.4 + Math.random() * 0.6,
-  }));
-}
-
-if (typeof window !== 'undefined') {
-  (window as any).rebuildStars = (): void => {
-    buildStars(W, H);
-  };
-}
-
-// ─── ASCII background ─────────────────────────────────────────────────────────
-const BG_CHARS = [
-  '\u2500','\u2502','\u250c','\u2510','\u2514','\u2518','\u251c','\u2524',
-  '\u2550','\u2551','\u2591','\u2592',
-  '+','-','=','~','^','|','/','\\',
-  '\u00b7','\u2022','\u25a1','\u2219',
-  '[',']','{','}','<','>',
-  'x','o','#','@','%',
-];
-interface BgCell { charIndex: number; phase: number; speed: number; changeTimer: number; changeInterval: number; }
-interface BgRepulsor { x: number; y: number; radius: number; strength: number; }
-interface BgOccluder { x: number; y: number; w: number; h: number; }
-interface BgInterval { left: number; right: number; }
-const SKY_GRID_COL_DRIFT_THRESHOLD = 2;
-const SKY_GRID_ROW_DRIFT_THRESHOLD = 1;
-let bgCells: BgCell[] = [];
-let bgCols = 0; let bgRows = 0; let bgCellW = 0; let bgCellH = 0; let bgFont = '';
-let bgHoverActive = false;
-let bgHoverPulse = 0;
-let bgHoverX = 0;
-let bgHoverY = 0;
-let bgHoverTargetX = 0;
-let bgHoverTargetY = 0;
-
-let skyTextNormalized = '';
-let skyTextStream = '';
-let skyTextStreamTargetLen = 0;
-
-function rebuildSkyTextStream(minLen: number): void {
-  skyTextNormalized = SKY_TEXT ? `${SKY_TEXT.replace(/\s+/g, ' ').trim()} ` : '';
-  if (skyTextNormalized.length === 0) {
-    skyTextStream = '';
-    skyTextStreamTargetLen = 0;
-    return;
-  }
-  const targetLen = Math.max(1, minLen);
-  const repetitions = Math.ceil(targetLen / skyTextNormalized.length) + 1;
-  skyTextStream = skyTextNormalized.repeat(repetitions);
-  skyTextStreamTargetLen = targetLen;
-}
-
-function buildAsciiBackground(): void {
-  const size = sz(W / 95, 15, 15);
-  bgFont = fnt(size);
-  bgCellW = renderer.measureWidth('M', bgFont) || 8;
-  bgCellH = size * 1.3;
-  bgCols = Math.ceil(W / bgCellW) + 1;
-  bgRows = Math.ceil(H / bgCellH) + 1;
-  const needed = bgCols * bgRows;
-  if (bgCells.length !== needed) {
-    bgCells = Array.from({ length: needed }, () => ({
-      charIndex: Math.floor(Math.random() * BG_CHARS.length),
-      phase: Math.random() * Math.PI * 2,
-      speed: 0.12 + Math.random() * 0.4,
-      changeTimer: Math.random() * 6,
-      changeInterval: 2.5 + Math.random() * 9,
-    }));
-  }
-  if (needed !== skyTextStreamTargetLen) rebuildSkyTextStream(needed);
-  bgHoverX = W * 0.5;
-  bgHoverY = H * 0.45;
-  bgHoverTargetX = bgHoverX;
-  bgHoverTargetY = bgHoverY;
-}
-function updateAsciiBackground(dt: number): void {
-  const follow = Math.min(1, dt * (bgHoverActive ? 14 : 6));
-  bgHoverX += (bgHoverTargetX - bgHoverX) * follow;
-  bgHoverY += (bgHoverTargetY - bgHoverY) * follow;
-  bgHoverPulse += dt * (bgHoverActive ? 7 : 3);
-  if (bgHoverPulse > Math.PI * 2) bgHoverPulse -= Math.PI * 2;
-
-  for (let i = 0; i < bgCells.length; i++) {
-    const c = bgCells[i];
-    c.phase += c.speed * dt;
-    if (c.phase > Math.PI * 2) c.phase -= Math.PI * 2;
-    c.changeTimer -= dt;
-    if (c.changeTimer <= 0) {
-      c.charIndex = Math.floor(Math.random() * BG_CHARS.length);
-      c.changeInterval = 2.5 + Math.random() * 9;
-      c.changeTimer = c.changeInterval;
-      c.speed = Math.random() < 0.1 ? 1.0 + Math.random() * 2.0 : 0.12 + Math.random() * 0.4;
-    }
-  }
-}
-
-// ─── Pretext-style circle obstacle for true text wrap ─────────────────────────
-interface BgCircleObstacle { cx: number; cy: number; rx: number; ry: number; hPad: number; vPad: number; }
-
-/**
- * Compute the horizontal interval blocked by an ellipse (rx, ry) at a given
- * vertical band [bandTop, bandBottom], with padding.  Returns null if the
- * band doesn't intersect the ellipse.  Adapted directly from the pretext
- * editorial-engine demo's circleIntervalForBand.
- */
-function ellipseIntervalForBand(
-  cx: number, cy: number,
-  rx: number, ry: number,
-  bandTop: number, bandBottom: number,
-  hPad: number, vPad: number,
-): BgInterval | null {
-  const top    = bandTop    - vPad;
-  const bottom = bandBottom + vPad;
-  if (top >= cy + ry || bottom <= cy - ry) return null;
-  // Closest y on [top, bottom] to cy
-  const minDy = cy >= top && cy <= bottom ? 0 : cy < top ? top - cy : cy - bottom;
-  if (minDy >= ry) return null;
-  // Ellipse: (x/rx)²+(y/ry)²=1 → maxDx at minDy
-  const maxDx = rx * Math.sqrt(1 - (minDy / ry) ** 2);
-  return { left: cx - maxDx - hPad, right: cx + maxDx + hPad };
-}
-
-/**
- * Carve blocked intervals out of a base interval, returning the remaining
- * open slots.  Directly from the pretext editorial-engine demo.
- */
-function carveTextLineSlots(base: BgInterval, blocked: BgInterval[]): BgInterval[] {
-  let slots: BgInterval[] = [{ left: base.left, right: base.right }];
-  for (let bi = 0; bi < blocked.length; bi++) {
-    const interval = blocked[bi]!;
-    const next: BgInterval[] = [];
-    for (let si = 0; si < slots.length; si++) {
-      const slot = slots[si]!;
-      if (interval.right <= slot.left || interval.left >= slot.right) {
-        next.push(slot);
-        continue;
-      }
-      if (interval.left > slot.left) next.push({ left: slot.left, right: interval.left });
-      if (interval.right < slot.right) next.push({ left: interval.right, right: slot.right });
-    }
-    slots = next;
-  }
-  return slots;
-}
-
-function mergeBlockedIntervals(intervals: BgInterval[], minX: number, maxX: number): BgInterval[] {
-  if (intervals.length === 0) return [];
-  const clamped = intervals
-    .map((it) => ({ left: Math.max(minX, it.left), right: Math.min(maxX, it.right) }))
-    .filter((it) => it.right > it.left)
-    .sort((a, b) => a.left - b.left);
-  if (clamped.length === 0) return [];
-
-  const merged: BgInterval[] = [clamped[0]!];
-  for (let i = 1; i < clamped.length; i++) {
-    const cur = clamped[i]!;
-    const last = merged[merged.length - 1]!;
-    if (cur.left <= last.right) {
-      last.right = Math.max(last.right, cur.right);
-    } else {
-      merged.push({ left: cur.left, right: cur.right });
-    }
-  }
-  return merged;
-}
-
-/**
- * Given a glyph x position and the open slots for this row, return whether
- * the glyph is in a slot and how close it is to the nearest slot edge
- * (wrapT=1 means right at the edge, 0 means far from any edge).
- */
-function drawAsciiBackground(
-  scrollY: number,
-  baseAlpha: number,
-  tintColor: string,
-  repulsors: BgRepulsor[] = [],
-  occluders: BgOccluder[] = [],
-  circleObstacles: BgCircleObstacle[] = [],
-  carveCloudField = false,
-  clipToGround = true,
-): void {
-  if (bgCells.length === 0 || bgCols === 0) return;
-  ctx.save();
-  ctx.font = bgFont;
-  ctx.textBaseline = 'top';
-  ctx.fillStyle = tintColor;
-  const scrolledY = scrollY % bgCellH;
-  const maxY = clipToGround ? H * GROUND_Y_RATIO : H;
-  const hoverRadius = Math.max(95, Math.min(230, W * 0.2));
-  const hoverPush = 8.5;
-  const hoverBoost = 0.42 + 0.14 * Math.sin(bgHoverPulse);
-  // Glow width: how many px from a slot edge counts as "near the wrap"
-  const glowWidth = bgCellW * 1.0;  // tight glow — only 1 char from the edge
-  const textChars = skyTextStream;
-
-  // Spatial partitioning: map repulsors into potentially intersecting rows once.
-  const repulsorsByRow: BgRepulsor[][] = Array.from({ length: bgRows }, () => []);
-  for (let i = 0; i < repulsors.length; i++) {
-    const rep = repulsors[i]!;
-    const minRow = Math.max(0, Math.floor((rep.y - rep.radius + scrolledY) / bgCellH) - 1);
-    const maxRow = Math.min(bgRows - 1, Math.ceil((rep.y + rep.radius + scrolledY) / bgCellH) + 1);
-    for (let row = minRow; row <= maxRow; row++) {
-      repulsorsByRow[row]!.push(rep);
-    }
-  }
-
-  for (let row = 0; row < bgRows; row++) {
-    const y = row * bgCellH - scrolledY;
-    if (y > maxY + bgCellH) continue;
-    const rowRepulsors = repulsorsByRow[row]!;
-
-    const bandTop    = y;
-    const bandBottom = y + bgCellH;
-
-    // --- Collect all blocked intervals for this band ---
-    const blocked: BgInterval[] = [];
-
-    // Rect occluders (axis-aligned boxes — hard blanks, e.g. HUD)
-    for (let oi = 0; oi < occluders.length; oi++) {
-      const o = occluders[oi]!;
-      if (bandBottom <= o.y || bandTop >= o.y + o.h) continue;
-      blocked.push({ left: o.x, right: o.x + o.w });
-    }
-
-    // Circle/ellipse obstacles (pretext-style true wrap)
-    for (let ci = 0; ci < circleObstacles.length; ci++) {
-      const co = circleObstacles[ci]!;
-      const interval = ellipseIntervalForBand(
-        co.cx, co.cy, co.rx, co.ry,
-        bandTop, bandBottom, co.hPad, co.vPad,
-      );
-      if (interval !== null) blocked.push(interval);
-    }
-
-    if (carveCloudField) {
-      const fieldBlocked = getCloudFieldBlockedIntervalsForBand(bandTop, bandBottom);
-      for (let fi = 0; fi < fieldBlocked.length; fi++) blocked.push(fieldBlocked[fi]!);
-    }
-
-    const mergedBlocked = blocked.length > 1 ? mergeBlockedIntervals(blocked, 0, W) : blocked;
-    // Carve open slots from [0, W]
-    const slots = carveTextLineSlots({ left: 0, right: W }, mergedBlocked);
-    if (slots.length === 0) continue;
-
-    let slotIndex = 0;
-    for (let col = 0; col < bgCols; col++) {
-      const x = col * bgCellW;
-      const idx = row * bgCols + col;
-      if (idx >= bgCells.length) continue;
-
-      // True wrap: only draw if this glyph's x falls inside an open slot
-      while (slotIndex < slots.length && x > slots[slotIndex]!.right) slotIndex++;
-      const slot = slots[slotIndex];
-      if (!slot || x < slot.left || x > slot.right) continue;
-
-      const distLeft = x - slot.left;
-      const distRight = slot.right - x;
-      const edgeDist = Math.min(distLeft, distRight);
-      const wrapT = Math.max(0, 1 - edgeDist / glowWidth);
-
-      const cell = bgCells[idx]!;
-      const pulse = 0.72 + 0.28 * (0.5 + 0.5 * Math.sin(cell.phase));
-
-      // Hover push (mouse proximity)
-      const dx = x - bgHoverX;
-      const dy = y - bgHoverY;
-      const dist = Math.hypot(dx, dy);
-      const hoverT = Math.max(0, 1 - dist / hoverRadius);
-      const push = hoverT * hoverPush;
-      const dirX = dist > 0.0001 ? dx / dist : 0;
-      const dirY = dist > 0.0001 ? dy / dist : -1;
-      const warp = bgHoverActive ? 1 : 0.42;
-
-      // Object repulsors (hazards, clouds — still push, not carve)
-      let objectPushX = 0;
-      let objectPushY = 0;
-      let objectBoost = 0;
-      for (let ri = 0; ri < rowRepulsors.length; ri++) {
-        const rep = rowRepulsors[ri]!;
-        const odx = x - rep.x;
-        const ody = y - rep.y;
-        const od = Math.hypot(odx, ody);
-        if (od >= rep.radius) continue;
-        const t = 1 - od / rep.radius;
-        const mag = t * t * rep.strength;
-        const oux = od > 0.0001 ? odx / od : (col % 2 === 0 ? 1 : -1);
-        const ouy = od > 0.0001 ? ody / od : -1;
-        objectPushX += oux * mag;
-        objectPushY += ouy * mag;
-        objectBoost += t;
-      }
-
-      if (carveCloudField) {
-        const cloudWarp = sampleCloudFieldWarpPush(x, y);
-        objectPushX += cloudWarp.dx;
-        objectPushY += cloudWarp.dy;
-        objectBoost += cloudWarp.boost;
-      }
-
-      const drawX = x + dirX * push * warp + objectPushX;
-      const drawY = y + dirY * push * warp + objectPushY;
-
-      // wrapT brightens glyphs at the silhouette edge — the "wrap glow"
-      const alpha = baseAlpha * pulse
-        * (1.2 + hoverT * hoverBoost)
-        * (1 + Math.min(0.35, objectBoost * 0.12))
-        * (1 + wrapT * 0.55);   // edge glow: up to +55% brightness
-
-      if (alpha < 0.004) continue;
-      
-      // Use Lorem Ipsum text if available, otherwise fallback to random BG_CHARS
-      let charToUse: string;
-      if (textChars.length > 0) {
-        charToUse = textChars[idx % textChars.length]!;
-      } else {
-        charToUse = BG_CHARS[cell.charIndex!]!;
-      }
-      
-      ctx.globalAlpha = alpha;
-      ctx.fillText(charToUse, drawX, drawY);
-    }
-  }
-  ctx.restore();
-}
-
 const CLOUD_FIELD_CARVE_BRIGHTNESS = 0.05;
 const CLOUD_FIELD_WARP_BRIGHTNESS = 0.02;
 const CLOUD_FIELD_CARVE_PAD = 0.9;
@@ -481,7 +77,7 @@ function sampleCloudFieldWarpPush(screenX: number, screenY: number): { dx: numbe
   const center = sampleBrightness(localX, localY);
   if (center < CLOUD_FIELD_WARP_BRIGHTNESS) return { dx: 0, dy: 0, boost: 0 };
 
-  const delta = Math.max(2, Math.floor(bgCellW * 0.6));
+  const delta = Math.max(2, Math.floor(getBackgroundCellWidth() * 0.6));
   const left = sampleBrightness(Math.max(0, localX - delta), localY);
   const right = sampleBrightness(Math.min(CANVAS_W - 1, localX + delta), localY);
   const up = sampleBrightness(localX, Math.max(0, localY - delta));
@@ -516,8 +112,8 @@ function getCloudFieldBlockedIntervalsForBand(bandTop: number, bandBottom: numbe
   const localY = (bandTop + bandBottom) * 0.5 - sourceY;
   if (localY < 0 || localY >= CANVAS_H) return [];
 
-  const step = Math.max(2, Math.floor(bgCellW));
-  const pad = Math.max(1, Math.floor(bgCellW * CLOUD_FIELD_CARVE_PAD));
+  const step = Math.max(2, Math.floor(getBackgroundCellWidth()));
+  const pad = Math.max(1, Math.floor(getBackgroundCellWidth() * CLOUD_FIELD_CARVE_PAD));
   const out: BgInterval[] = [];
   let runStart = -1;
 
@@ -617,7 +213,7 @@ function buildBackgroundCircleObstacles(s: GameState): BgCircleObstacle[] {
   const handleCy  = handleTop + (HANDLE_LINES_BG * umbrellaLineH) / 2;
   out.push({
     cx: canopyCx, cy: handleCy,
-    rx: bgCellW * 1.1, ry: (HANDLE_LINES_BG * umbrellaLineH) / 2,
+    rx: getBackgroundCellWidth() * 1.1, ry: (HANDLE_LINES_BG * umbrellaLineH) / 2,
     hPad: 2, vPad: 1,
   });
 
@@ -670,8 +266,14 @@ function init(): void {
   void loadSkyText();
   state = createInitialState(W, H);
   initParticleSystem(state);
-  bindEvents();
-  requestAnimationFrame(loop);
+  bindEvents(state, () => {
+    ctx.setTransform(1, 0, 0, 1, 0, 0)
+    resize()
+    buildStars(W, H)
+    buildAsciiBackground()
+    initParticleSystem(state)
+  })
+  requestAnimationFrame(loop)
 }
 let lastTime = 0;
 function loop(ts: number): void {
@@ -840,21 +442,6 @@ function drawBoot(s: GameState): void {
 }
 
 // ─── Sky text background ──────────────────────────────────────────────────────
-let SKY_TEXT = 'Lorem ipsum dolor sit amet, consectetur adipiscing elit. ';
-async function loadSkyText(): Promise<void> {
-  try {
-    const url = new URL('./CallofCthulhu.txt', import.meta.url).href;
-    const res = await fetch(url);
-    if (res.ok) {
-      SKY_TEXT = await res.text();
-      rebuildSkyTextStream(bgCells.length);
-      return;
-    }
-  } catch (e) {
-    // ignore and keep fallback
-  }
-  rebuildSkyTextStream(bgCells.length);
-}
 
 let skyGrid: string[] = [];
 let skyGridCols = 0;
@@ -871,9 +458,10 @@ function calculateGlyphOffset(glyphX: number, glyphY: number, s: GameState): { d
   const objects: Array<{ cx: number; cy: number; rx: number; ry: number }> = [];
 
   // Cursor (bgHover when active) — treat as circle
-  if (bgHoverActive) {
+  if (isBackgroundHoverActive()) {
     const cursorRadius = 40;
-    objects.push({ cx: bgHoverX, cy: bgHoverY, rx: cursorRadius, ry: cursorRadius });
+    const hover = getBackgroundHoverPosition();
+    objects.push({ cx: hover.x, cy: hover.y, rx: cursorRadius, ry: cursorRadius });
   }
 
   // ── Umbrella: match buildBackgroundCircleObstacles exactly ──
@@ -898,7 +486,7 @@ function calculateGlyphOffset(glyphX: number, glyphY: number, s: GameState): { d
   const handleCy = handleTop + (HANDLE_LINES_BG * umbrellaLineH) / 2;
   objects.push({
     cx: canopyCx, cy: handleCy,
-    rx: bgCellW * 1.1, ry: (HANDLE_LINES_BG * umbrellaLineH) / 2,
+    rx: getBackgroundCellWidth() * 1.1, ry: (HANDLE_LINES_BG * umbrellaLineH) / 2,
   });
 
   // ── Traveler ──
@@ -972,7 +560,18 @@ function drawGame(s: GameState): void {
   const occluders = buildBackgroundOccluders(s);
   const circleObstacles = buildBackgroundCircleObstacles(s);
   drawStars(s);
-  drawAsciiBackground(s.bgStarOffset * 0.3, 0.15, '#8bc98b', repulsors, occluders, circleObstacles, true);
+  drawAsciiBackground(
+    s.bgStarOffset * 0.3,
+    0.15,
+    '#8bc98b',
+    repulsors,
+    occluders,
+    circleObstacles,
+    true,
+    true,
+    getCloudFieldBlockedIntervalsForBand,
+    sampleCloudFieldWarpPush,
+  );
   if (SHOW_CLOUD_SOURCE_FIELD) drawSourceField();
   drawClouds(s);
   drawGround(s);
@@ -992,25 +591,6 @@ function drawGame(s: GameState): void {
     ctx.fillRect(0, 0, W, H); ctx.restore();
   }
   drawScanlines(0.08);
-}
-
-// Stars
-function drawStars(s: GameState): void {
-  ctx.save();
-  ctx.textAlign = 'center';
-  ctx.textBaseline = 'middle';
-  let activeSize = -1;
-  for (const star of stars) {
-    const twinkle = 0.7 + 0.3 * Math.sin(s.elapsed * (1.2 + star.speed) + star.x * 0.05);
-    ctx.globalAlpha = star.brightness * twinkle;
-    ctx.fillStyle = star.size > 1 ? '#8899aa' : '#4a6070';
-    if (star.size !== activeSize) {
-      activeSize = star.size;
-      ctx.font = `${activeSize}px ${FONT_FAMILY}`;
-    }
-    ctx.fillText('★', Math.round(star.x), Math.round(star.y));
-  }
-  ctx.restore();
 }
 
 // Clouds
@@ -1079,6 +659,9 @@ let PARTICLE_TYPE_WEIGHTS: Record<string, number> = {
   hail: 0.0,
 };
 
+const SNOW_UNLOCK_LEVEL = 2;
+const HAIL_UNLOCK_LEVEL = 5;
+
 // Update particle type weights as level increases
 function updateParticleTypeWeights(level: number) {
   // Level 1: rain 100, snow 0, hail 0
@@ -1086,10 +669,10 @@ function updateParticleTypeWeights(level: number) {
     PARTICLE_TYPE_WEIGHTS = { rain: 1.0, snow: 0.0, hail: 0.0 };
     return;
   }
-  // Each level: rain -10, snow +5, hail +5 (percentages)
+  // Each level after unlock: rain -10, snow +5, hail +5 (percentages)
   let rain = 1.0 - 0.10 * (level - 1);
-  let snow = 0.05 * (level - 1);
-  let hail = 0.05 * (level - 1);
+  let snow = level >= SNOW_UNLOCK_LEVEL ? 0.05 * (level - 1) : 0.0;
+  let hail = level >= HAIL_UNLOCK_LEVEL ? 0.05 * (level - 1) : 0.0;
   // Clamp values
   rain = Math.max(0, rain);
   snow = Math.max(0, snow);
@@ -1400,6 +983,13 @@ function updateCloudEmitPoints(s: GameState): void {
   }
 }
 
+if (typeof window !== 'undefined') {
+  (window as any).initParticleSystem = initParticleSystem;
+  (window as any).updateCloudEmitPoints = updateCloudEmitPoints;
+  (window as any).rebuildStars = rebuildStars;
+  (window as any).buildAsciiBackground = buildAsciiBackground;
+}
+
 function makeCloudBody(width: number, charset: string, phase: number, filled: boolean): string {
   let result = '';
   for (let i = 0; i < width; i++) {
@@ -1428,7 +1018,9 @@ function getCloudLines(c: Cloud, elapsed: number): string[];
 function getCloudLines(c: Cloud, elapsed = 0): string[] {
   const width = 20 + (c.id % 3) * 3 + (c.type === 'hail' ? 4 : 0);
   const phase = elapsed * (c.type === 'rain' ? 1.2 : c.type === 'snow' ? 0.7 : c.type === 'purpleRain' ? 1.0 : 0.5) + c.id * 0.9;
-  const cloudType: ParticleType = c.type === 'purpleRain' ? 'purpleRain' : (c.visualType ?? 'rain');
+  const cloudType: ParticleType = c.type === 'purpleRain'
+    ? 'purpleRain'
+    : (c.visualType ?? c.type);
   const charset = CLOUD_CHARSETS[cloudType] || CLOUD_CHARSET;
   const body = makeCloudBody(width, charset, phase, false);
   const fill = makeCloudBody(width, charset, phase + 0.9, true);
@@ -2401,60 +1993,6 @@ function drawGameOver(s: GameState): void {
       align: 'center',
     });
   }
-}
-
-// ─── Events ───────────────────────────────────────────────────────────────────
-function canvasPos(e: MouseEvent | Touch): { x: number; y: number } {
-  const r = canvas.getBoundingClientRect();
-  return { x: e.clientX - r.left, y: e.clientY - r.top };
-}
-function bindEvents(): void {
-  window.addEventListener('resize', () => { ctx.setTransform(1,0,0,1,0,0); resize(); buildStars(W, H); buildAsciiBackground(); });
-  window.addEventListener('keydown', (e) => { resumeAudio(); handleKeyDown(state, e.key); });
-  window.addEventListener('keyup', (e) => { handleKeyUp(state, e.key); });
-  canvas.addEventListener('mousemove', (e) => {
-    const p = canvasPos(e);
-    bgHoverActive = true;
-    bgHoverTargetX = p.x;
-    bgHoverTargetY = p.y;
-    handlePointerMove(state, p.x, p.y);
-  });
-  canvas.addEventListener('mouseenter', (e) => {
-    const p = canvasPos(e);
-    bgHoverActive = true;
-    bgHoverTargetX = p.x;
-    bgHoverTargetY = p.y;
-  });
-  canvas.addEventListener('mouseleave', () => {
-    bgHoverActive = false;
-    bgHoverTargetX = W * 0.5;
-    bgHoverTargetY = H * 0.45;
-  });
-  canvas.addEventListener('mousedown', (e) => { resumeAudio(); const p = canvasPos(e); handlePointerDown(state, p.x, p.y); });
-  window.addEventListener('mouseup', () => handlePointerUp(state));
-  canvas.addEventListener('touchmove', (e) => {
-    e.preventDefault();
-    const p = canvasPos(e.touches[0]);
-    bgHoverActive = true;
-    bgHoverTargetX = p.x;
-    bgHoverTargetY = p.y;
-    handlePointerMove(state, p.x, p.y);
-  }, { passive: false });
-  canvas.addEventListener('touchstart', (e) => {
-    e.preventDefault();
-    resumeAudio();
-    const p = canvasPos(e.touches[0]);
-    bgHoverActive = true;
-    bgHoverTargetX = p.x;
-    bgHoverTargetY = p.y;
-    handlePointerDown(state, p.x, p.y);
-  }, { passive: false });
-  window.addEventListener('touchend', () => {
-    bgHoverActive = false;
-    bgHoverTargetX = W * 0.5;
-    bgHoverTargetY = H * 0.45;
-    handlePointerUp(state);
-  });
 }
 
 init();
