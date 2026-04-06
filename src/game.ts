@@ -733,13 +733,6 @@ function spawnHazardFromCloud(state: GameState, cloud: Cloud): void {
 }
 
 /** Legacy single-hazard spawn used by the batch timer — now just picks a random cloud. */
-function spawnHazard(state: GameState): void {
-  if (state.clouds.length === 0) return;
-  const cloud = state.clouds[Math.floor(Math.random() * state.clouds.length)];
-  spawnHazardFromCloud(state, cloud);
-}
-
-
 function spawnSplash(
   state: GameState,
   x: number, y: number,
@@ -1124,22 +1117,6 @@ function teleportPlayer(state: GameState): void {
   const distLeft = Math.abs(nearest.x - leftX);
   const distRight = Math.abs(nearest.x - rightX);
   state.travelerX = distLeft > distRight ? leftX : rightX;
-}
-
-function clearScreen(state: GameState): void {
-  for (let i = 0; i < state.hazards.length; i++) {
-    releaseHazard(state.hazards[i]!);
-  }
-  state.hazards.length = 0;
-  // Validate/repair hazards after length assignment
-  if (!Array.isArray(state.hazards) || typeof state.hazards.length !== 'number' || state.hazards.length < 0 || !Number.isFinite(state.hazards.length) || !Number.isSafeInteger(state.hazards.length)) {
-    if (typeof console !== 'undefined') {
-      console.error('[ERROR] state.hazards was invalid after clearScreen, forcibly resetting to []', { hazards: state.hazards, state });
-      console.trace('[TRACE] Corruption detected after clearScreen');
-    }
-    state.hazards = [];
-  }
-  state.powerUpPickups.length = 0;
 }
 
 function restoreHealth(state: GameState): void {

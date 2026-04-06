@@ -68,9 +68,6 @@ const CLOUD_FONT_FAMILY = '"IBM Plex Mono", monospace';
 function fnt(size: number, weight: number = 400): string {
   return `${weight} ${size}px ${FONT_FAMILY}`;
 }
-function cloudFnt(size: number, weight: number = 700): string {
-  return `italic ${weight} ${size}px ${CLOUD_FONT_FAMILY}`;
-}
 function sz(base: number, minV: number, maxV: number): number {
   return Math.max(minV, Math.min(maxV, base));
 }
@@ -304,24 +301,6 @@ function mergeBlockedIntervals(intervals: BgInterval[], minX: number, maxX: numb
  * the glyph is in a slot and how close it is to the nearest slot edge
  * (wrapT=1 means right at the edge, 0 means far from any edge).
  */
-function glyphSlotResult(
-  x: number,
-  slots: BgInterval[],
-  glowWidth: number,
-): { inSlot: boolean; wrapT: number } {
-  for (let i = 0; i < slots.length; i++) {
-    const s = slots[i]!;
-    if (x < s.left || x > s.right) continue;
-    // In slot — measure closeness to either edge
-    const distLeft  = x - s.left;
-    const distRight = s.right - x;
-    const edgeDist  = Math.min(distLeft, distRight);
-    const wrapT = Math.max(0, 1 - edgeDist / glowWidth);
-    return { inSlot: true, wrapT };
-  }
-  return { inSlot: false, wrapT: 0 };
-}
-
 function drawAsciiBackground(
   scrollY: number,
   baseAlpha: number,
@@ -672,7 +651,6 @@ function buildBackgroundCircleObstacles(s: GameState): BgCircleObstacle[] {
   });
 
   // Clouds are carved directly from the source field in drawAsciiBackground.
-
   return out;
 }
 
@@ -981,88 +959,6 @@ function calculateGlyphOffset(glyphX: number, glyphY: number, s: GameState): { d
   return { dx: totalDx, dy: totalDy };
 }
 
-function drawSkyTextBackground(s: GameState): void {
-  if (!SKY_TEXT) return; // not loaded yet
-  const groundY = travelerGroundY(s);
-  if (groundY <= 0) return;
-
-  const size = sz(W / 60, 11, 15);
-  const f = fnt(size, 700);
-  const lineH = Math.ceil(size * 1.2);
-
-  const charW = Math.max(4, renderer.measureWidth('M', f));
-  const hudH = sz(W / 70, 10, 14) + 20;
-  const startY = hudH + 5;
-  const skyHeight = Math.max(0, groundY - startY);
-  const cols = Math.max(1, Math.floor(W / charW));
-  const rows = Math.max(1, Math.floor(skyHeight / lineH));
-  const hasGrid = skyGrid.length > 0;
-  const canReuseGrid =
-    hasGrid
-    && Math.abs(cols - skyGridCols) <= SKY_GRID_COL_DRIFT_THRESHOLD
-    && Math.abs(rows - skyGridRows) <= SKY_GRID_ROW_DRIFT_THRESHOLD;
-
-  // Reuse the old grid when dimensions only drift slightly.
-  if (canReuseGrid) {
-    // Draw the pre-computed grid with per-glyph offset based on object proximity
-    ctx.save();
-    ctx.font = f;
-    ctx.textBaseline = 'top';
-    ctx.fillStyle = COLORS.dim;
-    ctx.globalAlpha = 0.45;
-    for (let r = 0; r < rows; r++) {
-      const line = skyGrid[r] || ' '.repeat(cols);
-      for (let c = 0; c < cols; c++) {
-        const char = c < line.length ? line[c]! : ' ';
-        const baseX = c * charW;
-        const baseY = startY + r * lineH;
-        const offset = calculateGlyphOffset(baseX, baseY, s);
-        const glyphX = baseX + offset.dx;
-        const glyphY = baseY + offset.dy;
-        ctx.fillText(char, glyphX, glyphY);
-      }
-    }
-    ctx.restore();
-    return;
-  }
-
-  skyGridCols = cols;
-  skyGridRows = rows;
-  skyGrid = [];
-
-  // Flatten the SKY_TEXT into a stream of characters
-  const textChars = SKY_TEXT.replace(/\s+/g, ' ').trim() + ' ';
-  let idx = 0;
-  for (let r = 0; r < rows; r++) {
-    let rowStr = '';
-    for (let c = 0; c < cols; c++) {
-      rowStr += textChars[idx % textChars.length];
-      idx++;
-    }
-    skyGrid.push(rowStr);
-  }
-
-  // Render the full sky grid with per-glyph offset
-  ctx.save();
-  ctx.font = f;
-  ctx.textBaseline = 'top';
-  ctx.fillStyle = COLORS.dim;
-  ctx.globalAlpha = 0.45;
-  for (let r = 0; r < rows; r++) {
-    const line = skyGrid[r] || ' '.repeat(cols);
-    for (let c = 0; c < cols; c++) {
-      const char = c < line.length ? line[c]! : ' ';
-      const baseX = c * charW;
-      const baseY = startY + r * lineH;
-      const offset = calculateGlyphOffset(baseX, baseY, s);
-      const glyphX = baseX + offset.dx;
-      const glyphY = baseY + offset.dy;
-      ctx.fillText(char, glyphX, glyphY);
-    }
-  }
-  ctx.restore();
-}
-
 // ─── Game world ───────────────────────────────────────────────────────────────
 function drawGame(s: GameState): void {
   // ASCII background now displays Lorem Ipsum text directly (no separate sky text layer needed)
@@ -1133,36 +1029,6 @@ function wrapPatternIndex(index: number, length: number): number {
 function cloudNoise(seed: number): number {
   const value = Math.sin(seed * 12.9898 + 78.233) * 43758.5453;
   return value - Math.floor(value);
-}
-function getRollingCloudChar(
-  type: ParticleType | 'mixed' | undefined,
-  col: number,
-  row: number,
-  elapsed: number,
-  brightness: number,
-): string {
-  const resolvedType: ParticleType = type === 'snow' || type === 'hail' || type === 'purpleRain' ? type : 'rain';
-  const pattern = CLOUD_CHARSETS[resolvedType] || CLOUD_CHARSET;
-  const speed = resolvedType === 'snow' ? -2.2 : resolvedType === 'hail' ? 4.4 : 6.4;
-  const phase = Math.floor(elapsed * speed + row * (resolvedType === 'snow' ? 1.2 : 1.7));
-  const idx = wrapPatternIndex(col + phase, pattern.length);
-  let ch = pattern[idx] ?? ' ';
-  if (brightness > 0.72 && ch === ' ') {
-    ch = pattern[wrapPatternIndex(idx + 1, pattern.length)] ?? ' ';
-  }
-
-  if (ch !== ' ') {
-    const timeBucket = Math.floor(elapsed * (resolvedType === 'snow' ? 2.0 : resolvedType === 'hail' ? 3.6 : 3.0));
-    const noise = cloudNoise((col + 1) * 17.13 + (row + 1) * 91.7 + timeBucket * 0.73 + brightness * 11.2);
-    const symbolChance = brightness > 0.68 ? 0.22 : brightness > 0.3 ? 0.14 : 0.08;
-    if (noise < symbolChance) {
-      const symbolIdx = Math.floor(cloudNoise(noise * 97 + col * 3.1 + row * 5.7) * CLOUD_DECORATION_CHARS.length);
-      ch = CLOUD_DECORATION_CHARS[symbolIdx] ?? ch;
-    }
-  }
-
-  if (brightness < 0.12 && ch !== ' ') return '.';
-  return ch;
 }
 const SHOW_CLOUD_SOURCE_FIELD = false;
 
@@ -1521,24 +1387,6 @@ function updateCloudEmitPoints(s: GameState): void {
     }
     cloud.emitPoints = reduced;
   }
-}
-
-function getCloudLinesFromField(c: Cloud, elapsed: number): string[] {
-  const width = 10;
-  const height = 4;
-  const offsetX = (c.id * 13) % (FIELD_COLS / FIELD_OVERSAMPLE - width);
-  const offsetY = (c.id * 7) % (FIELD_ROWS / FIELD_OVERSAMPLE - height);
-  const lines: string[] = [];
-  for (let row = 0; row < height; row++) {
-    let line = '';
-    for (let col = 0; col < width; col++) {
-      const brightness = sampleBrightness(offsetX + col, offsetY + row);
-      const index = brightnessToCharsetIndex(brightness);
-      line += CLOUD_CHARSET[index] || ' ';
-    }
-    lines.push(line);
-  }
-  return lines;
 }
 
 function makeCloudBody(width: number, charset: string, phase: number, filled: boolean): string {
