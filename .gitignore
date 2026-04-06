@@ -17,6 +17,8 @@ dist/
 build/
 out/
 *.tgz
+dist.zip
+game.zip
 
 # Coverage / tests
 coverage/

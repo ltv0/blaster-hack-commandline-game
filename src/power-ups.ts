@@ -152,10 +152,16 @@ function setTimedPowerUpState(state: GameState, type: PowerUpType, active: boole
       state.findBoostActive = active;
       break;
     case 'zip':
-      state.invincibilityActive = active;
+      state.invincibilityActive =
+        active ||
+        (state.powerUpTimers.zip ?? 0) > 0 ||
+        (state.powerUpTimers.sudo ?? 0) > 0;
       break;
     case 'sudo':
-      state.invincibilityActive = active;
+      state.invincibilityActive =
+        active ||
+        (state.powerUpTimers.zip ?? 0) > 0 ||
+        (state.powerUpTimers.sudo ?? 0) > 0;
       break;
     default:
       break;
