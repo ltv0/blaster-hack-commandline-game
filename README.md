@@ -26,7 +26,7 @@ Command-line themed browser game where you drag an umbrella to protect a travele
 3. Open PowerShell in the project directory:
 
 ```powershell
-cd C:\Users\lukek\Documents\github\blaster-hack-commandline-game
+blaster-hack-commandline-game
 ```
 
 4. Install dependencies:
