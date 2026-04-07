@@ -14,6 +14,25 @@ import {
   type AudioEvent,
   type Cloud,
 } from './game.ts'
+import {
+  CLOUD_CHARSET,
+  CLOUD_CHARSETS,
+  TRAVELER_HEADS,
+  TRAVELER_JUMP_HEAD,
+  TRAVELER_LEGS_IDLE,
+  TRAVELER_LEGS_WALK,
+  TRAVELER_LEGS_RUN,
+  TRAVELER_ARMS_ASCENDING,
+  TRAVELER_ARMS_DESCENDING,
+  TRAVELER_LEGS_ASCENDING,
+  TRAVELER_LEGS_DESCENDING,
+  TRAVELER_ARMS_LEFT,
+  TRAVELER_ARMS_RIGHT,
+  TRAVELER_ARMS_IDLE,
+  UMBRELLA_CANOPY,
+  UMBRELLA_HANDLE_LINES,
+  UMBRELLA_FOOT,
+} from './assest.ts'
 import { bindEvents } from './rendering/input.ts'
 import { buildStars, rebuildStars, drawStars, buildAsciiBackground, updateAsciiBackground, drawAsciiBackground, loadSkyText, getBackgroundHoverPosition, isBackgroundHoverActive, getBackgroundCellWidth, type BgOccluder, type BgRepulsor, type BgCircleObstacle, type BgInterval } from './rendering/background.ts'
 import { resumeAudio, handleAudioEvents } from './rendering/audio.ts'
@@ -594,14 +613,6 @@ function drawGame(s: GameState): void {
 }
 
 // Clouds
-const CLOUD_CHARSET = ' .,-:;=+*#%R';
-const CLOUD_DECORATION_CHARS = '.,:+*#@';
-const CLOUD_CHARSETS: Record<ParticleType, string> = {
-  rain: CLOUD_CHARSET,
-  snow: ' .,-:;=+*#%S',
-  hail: ' .,-:;=+*#%H',
-  purpleRain: ' .,-:;=+*#%P',
-};
 const CLOUD_EMIT_BRIGHTNESS = 0.22;
 const CLOUD_EMIT_SAMPLE_COLS = 18;
 const CLOUD_EMIT_SAMPLE_ROWS = 8;
@@ -1232,10 +1243,6 @@ function drawGround(s: GameState): void {
 }
 
 // Traveler
-const TRAVELER_HEADS = ['(^o^)'];
-const LEGS_IDLE = ['/  \\', '/  \\'];
-const LEGS_WALK = ['/  \\', ' |/ ', '/  \\', ' \\| '];
-const LEGS_RUN  = ['/  \\', ' |/ ', '/  \\', ' \\| '];
 let tFrame = 0; let tLegFrame = 0; let tTimer = 0; let tLegTimer = 0;
 
 function drawTraveler(s: GameState): void {
@@ -1251,16 +1258,16 @@ function drawTraveler(s: GameState): void {
     const legInterval = speedFrac > 0.6 ? 0.07 : speedFrac > 0.15 ? 0.12 : 0.3;
     if (tLegTimer > legInterval) {
       tLegTimer = 0;
-      const lfc = speedFrac > 0.6 ? LEGS_RUN.length : speedFrac > 0.15 ? LEGS_WALK.length : LEGS_IDLE.length;
+      const lfc = speedFrac > 0.6 ? TRAVELER_LEGS_RUN.length : speedFrac > 0.15 ? TRAVELER_LEGS_WALK.length : TRAVELER_LEGS_IDLE.length;
       tLegFrame = (tLegFrame + 1) % lfc;
     }
   }
-  const legFrames = speedFrac > 0.6 ? LEGS_RUN : speedFrac > 0.15 ? LEGS_WALK : LEGS_IDLE;
+  const legFrames = speedFrac > 0.6 ? TRAVELER_LEGS_RUN : speedFrac > 0.15 ? TRAVELER_LEGS_WALK : TRAVELER_LEGS_IDLE;
   const groundLegStr = legFrames[tLegFrame % legFrames.length];
-  const armsJump = s.travelerVY < 0 ? '\\| |/' : '/| |\\';
-  const legsJump = s.travelerVY < 0 ? '^ ^' : 'v v';
+  const armsJump = s.travelerVY < 0 ? TRAVELER_ARMS_ASCENDING : TRAVELER_ARMS_DESCENDING;
+  const legsJump = s.travelerVY < 0 ? TRAVELER_LEGS_ASCENDING : TRAVELER_LEGS_DESCENDING;
   const moving = s.travelerVX;
-  const armsStr = moving < -10 ? '-| |>' : moving > 10 ? '<| |-' : '/| |\\';
+  const armsStr = moving < -10 ? TRAVELER_ARMS_LEFT : moving > 10 ? TRAVELER_ARMS_RIGHT : TRAVELER_ARMS_IDLE;
   const size = sz(W / 40, 14, 22);
   const f = fnt(size, 700);
   const lh = size + 2;
@@ -1270,7 +1277,7 @@ function drawTraveler(s: GameState): void {
   const wobble = !airborne && speedFrac > 0.7 ? Math.sin(Date.now() / 55) * 1.5 : 0;
   const tx = s.travelerX + wobble;
 
-  const headStr = airborne ? '(>o<)' : TRAVELER_HEADS[tFrame];
+  const headStr = airborne ? TRAVELER_JUMP_HEAD : TRAVELER_HEADS[tFrame];
   const headBlock = renderer.getBlock(headStr, f, lh);
   // Glow halo
   renderer.drawBlock(ctx, headBlock, tx, s.travelerY, { color: glow, shadowColor: glow, shadowBlur: airborne ? 20 : 14, align: 'center', alpha: 0.45 });
@@ -1486,19 +1493,6 @@ function drawHeartExplosions(s: GameState): void {
 }
 
 // ─── Umbrella ─────────────────────────────────────────────────────────────────
-// Canopy only — no leading-space lines that skew maxLineWidth measurement.
-const UMBRELLA_CANOPY = [
-    "           ___.----' `----.___",
-    "       _.-'   .-'  .  `   -   `-._",
-    "    .-'    .'           \\   `-    `-.",
-    "  .'              J            `.    `.",
-    " /___    /                L      `  .--`.",
-    "'    `-.  _.---._ |_.---._ .--\"\"\"-.'",
-
-];
-const UMBRELLA_HANDLE_LINES = 8;
-const UMBRELLA_FOOT = ['A', 'U', '      LV   ET', '     RC=HP'];
-
 function drawUmbrella(s: GameState): void {
   const { umbrellaX: ux, umbrellaY: uy } = s;
   const isPortrait = H > W;

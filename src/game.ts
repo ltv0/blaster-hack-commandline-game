@@ -6,9 +6,11 @@ import {
   updatePowerUpPickups,
   updatePowerUpTimers,
 } from './power-ups.ts';
+import { CAT_GLYPH, DOG_GLYPH, HAZARD_GLYPHS, UMBRELLA_CANOPY, UMBRELLA_FOOT, UMBRELLA_HANDLE_LINES } from './assest.ts';
 import { loadSkyText } from './rendering/background.ts';
 
 export { powerUpLabel } from './power-ups.ts';
+export { CAT_GLYPH, DOG_GLYPH, HAZARD_GLYPHS } from './assest.ts';
 
 // --- Performance caps ---
 const MAX_HAZARDS = 120;
@@ -274,11 +276,7 @@ export interface GameState {
 
 // G��G��G�� Constants G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��
 
-// Vertical glyphs for rain
-
-export const CAT_GLYPH = 'C\nA\nT';
-export const DOG_GLYPH = 'D\nO\nG';
-
+// Vertical glyphs and ASCII design assets live in `assest.ts`.
 export const BOOT_LINES = [
   'BLASTER HACK OS v2.4.1',
   'Initializing weather subsystem...     OK',
@@ -288,12 +286,6 @@ export const BOOT_LINES = [
   '\u26a0  WARNING: Severe weather incoming.',
   '> Press ENTER or SPACE to deploy _',
 ];
-
-export const HAZARD_GLYPHS: Record<string, string[]> = {
-  rain: ['|', '/', '\u254e', '\u254f', '\xa6', CAT_GLYPH, DOG_GLYPH],
-  snow: ['*', '\u2744', '\u2217', '\u2726', '\u204e'],
-  hail: ['\u25c6', '\u25cf', '\u25a0', '\u25c9', '\u25c8'],
-};
 
 export const COLORS = {
   bg:          '#0d1117',
@@ -483,9 +475,8 @@ function computeTravelerBaseY(state: GameState): number {
   return computeGroundY(state) - travelerSize * 2.95;
 }
 
-const UMBRELLA_CANOPY_LINES = 6;
-const UMBRELLA_HANDLE_LINES = 8;
-const UMBRELLA_FOOT_LINES = 4;
+const UMBRELLA_CANOPY_LINES = UMBRELLA_CANOPY.length;
+const UMBRELLA_FOOT_LINES = UMBRELLA_FOOT.length;
 const CLOUD_ART_LINES = 4;
 // Visual Y-axis trim for pointer tracking so the umbrella sits a touch higher.
 const UMBRELLA_POINTER_Y_TRIM = -8;
@@ -1279,7 +1270,7 @@ function updatePlaying(state: GameState, dt: number): void {
   }
 
   // Difficulty ramp every 12s
-  const newLevel = Math.floor(state.elapsed / 8);
+  const newLevel = Math.floor(state.elapsed / 0.1);
   if (newLevel > state.difficultyLevel) {
     state.difficultyLevel = newLevel;
     state.spawnInterval = Math.max(0.22, 1.6 - newLevel * 0.13);
