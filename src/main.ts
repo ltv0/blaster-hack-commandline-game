@@ -160,10 +160,19 @@ function getCloudFieldBlockedIntervalsForBand(bandTop: number, bandBottom: numbe
 
 function buildBackgroundRepulsors(s: GameState): BgRepulsor[] {
   const out: BgRepulsor[] = [];
-  // Note: umbrella and traveler are now handled by circle obstacles (true wrap),
-  // not repulsors.  Only soft-push effects remain here for hazards and clouds.
+  const travelerSize = sz(W / 40, 14, 22);
+  const travelerW = travelerSize * 1.7;
+  const travelerH = travelerSize * 2.25;
+  out.push({
+    x: s.travelerX,
+    y: s.travelerY + travelerSize * 0.45,
+    radius: Math.max(travelerW, travelerH) * 1.5,
+    strength: 25,
+    minY: s.travelerY + travelerSize * 0.25,
+  });
 
-  // Clouds use circle obstacles (true wrap) — no cloud repulsors here.
+  // Note: umbrella is still handled by circle obstacles (true wrap).
+  // Traveler body now uses a pretext-style repulsor instead of a rectangle occluder.
 
   const hazardCount = Math.min(28, s.hazards.length);
   for (let i = 0; i < hazardCount; i++) {
@@ -181,19 +190,9 @@ function buildBackgroundRepulsors(s: GameState): BgRepulsor[] {
 
 function buildBackgroundOccluders(s: GameState): BgOccluder[] {
   const out: BgOccluder[] = [];
-  // Traveler body — keep as a tight rect occluder so the body centre stays clean.
-  // The circle obstacle adds the wrap glow around it; the rect ensures nothing
-  // draws inside the sprite itself.
-  const travelerSize = sz(W / 40, 14, 22);
-  const travelerW = travelerSize * 1.7;
-  const travelerH = travelerSize * 2.25;
-  out.push({
-    x: s.travelerX - travelerW * 0.5,
-    y: s.travelerY + travelerSize * 0.45,
-    w: travelerW,
-    h: travelerH,
-  });
-  // Umbrella is fully handled by the circle obstacles — no rect occluder needed.
+  // No traveler rect occluder here; traveler body repulsion is handled
+  // by the pretext-style repulsor in buildBackgroundRepulsors.
+  // Umbrella is still handled by circle obstacles (true wrap).
   return out;
 }
 

@@ -2,7 +2,7 @@ import { ctx, renderer, W, H, fnt, sz } from './canvas.ts'
 
 interface Star { x: number; y: number; size: number; speed: number; brightness: number }
 export interface BgCell { charIndex: number; phase: number; speed: number; changeTimer: number; changeInterval: number }
-export interface BgRepulsor { x: number; y: number; radius: number; strength: number }
+export interface BgRepulsor { x: number; y: number; radius: number; strength: number; minY?: number }
 export interface BgOccluder { x: number; y: number; w: number; h: number }
 export interface BgInterval { left: number; right: number }
 export interface BgCircleObstacle { cx: number; cy: number; rx: number; ry: number; hPad: number; vPad: number }
@@ -324,6 +324,7 @@ export function drawAsciiBackground(
       let objectBoost = 0
       for (let ri = 0; ri < rowRepulsors.length; ri++) {
         const rep = rowRepulsors[ri]!
+        if (rep.minY !== undefined && y < rep.minY) continue
         const odx = x - rep.x
         const ody = y - rep.y
         const od = Math.hypot(odx, ody)
