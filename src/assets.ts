@@ -34,6 +34,7 @@ export const TRAVELER_ARMS_IDLE = '/| |\\'
 
 export type TravelerSprite = {
   name: string
+  unlockScore: number
   heads: readonly string[]
   jumpHead: string
   legsIdle: readonly string[]
@@ -51,6 +52,7 @@ export type TravelerSprite = {
 export const TRAVELER_SPRITES: readonly TravelerSprite[] = [
   {
     name: 'Classic',
+    unlockScore: 0,
     heads: TRAVELER_HEADS,
     jumpHead: TRAVELER_JUMP_HEAD,
     legsIdle: TRAVELER_LEGS_IDLE,
@@ -66,6 +68,7 @@ export const TRAVELER_SPRITES: readonly TravelerSprite[] = [
   },
   {
     name: 'Circuit',
+    unlockScore: 10000,
     heads: ['[o_o]'],
     jumpHead: '[O_O]',
     legsIdle: ['|  |', '|  |'],
@@ -81,6 +84,7 @@ export const TRAVELER_SPRITES: readonly TravelerSprite[] = [
   },
   {
     name: 'Specter',
+    unlockScore: 100000,
     heads: ['(o_o)'],
     jumpHead: '(O_O)',
     legsIdle: ['/  \\', '/  \\'],

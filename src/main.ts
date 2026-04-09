@@ -562,6 +562,11 @@ function drawCosmetics(s: GameState): void {
     align: 'center',
     alpha: 0.85,
   });
+  renderer.drawText(ctx, `LOCAL BEST: ${Math.floor(s.bestScore)}`, bodyFont, lh, cx, panelY + 96, {
+    color: COLORS.amber,
+    align: 'center',
+    alpha: 0.9,
+  });
 
   const previewX = panelX + panelW * 0.5;
   const previewY = panelY + panelH * 0.57;
@@ -594,20 +599,21 @@ function drawCosmetics(s: GameState): void {
 
   for (let i = 0; i < TRAVELER_SPRITES.length; i++) {
     const option = TRAVELER_SPRITES[i]!;
-    const selected = i === s.travelerSpriteIndex;
+    const unlocked = option.unlockScore <= s.bestScore;
+    const selected = unlocked && i === s.travelerSpriteIndex;
     const cardY = Math.round(cardsTop);
     ctx.save();
-    ctx.fillStyle = selected ? 'rgba(108, 242, 128, 0.14)' : 'rgba(8, 16, 22, 0.88)';
+    ctx.fillStyle = selected ? 'rgba(108, 242, 128, 0.14)' : unlocked ? 'rgba(8, 16, 22, 0.88)' : 'rgba(8, 12, 18, 0.72)';
     ctx.fillRect(cardX, cardY, cardW, cardH);
-    ctx.strokeStyle = selected ? 'rgba(140, 255, 159, 0.9)' : 'rgba(103, 115, 127, 0.55)';
+    ctx.strokeStyle = selected ? 'rgba(140, 255, 159, 0.9)' : unlocked ? 'rgba(103, 115, 127, 0.55)' : 'rgba(255, 194, 74, 0.45)';
     ctx.lineWidth = selected ? 3 : 1;
     ctx.strokeRect(cardX + 1, cardY + 1, cardW - 2, cardH - 2);
     ctx.restore();
 
     renderer.drawText(ctx, option.name, cardFont, lh, cardX + cardW / 2, cardY + 22, {
-      color: selected ? COLORS.brightGreen : COLORS.dim,
+      color: selected ? COLORS.brightGreen : unlocked ? COLORS.dim : COLORS.amber,
       align: 'center',
-      shadowColor: selected ? COLORS.brightGreen : COLORS.dim,
+      shadowColor: selected ? COLORS.brightGreen : unlocked ? COLORS.dim : COLORS.amber,
       shadowBlur: selected ? 10 : 0,
     });
     drawTravelerSprite(option, cardX + cardW / 2, cardY + 56, Math.max(12, cardSize - 1), {
@@ -617,13 +623,18 @@ function drawCosmetics(s: GameState): void {
       legIndex: 0,
       movingVX: 0,
       jumpVY: 0,
-      glow: selected ? COLORS.brightGreen : COLORS.dim,
-      bodyColor: selected ? COLORS.traveler : COLORS.dim,
+      glow: selected ? COLORS.brightGreen : unlocked ? COLORS.dim : COLORS.amber,
+      bodyColor: selected ? COLORS.traveler : unlocked ? COLORS.dim : COLORS.amber,
     });
 
     if (selected) {
       renderer.drawText(ctx, 'ACTIVE', fnt(Math.max(9, cardSize - 2), 700), lh, cardX + cardW / 2, cardY + cardH - 18, {
         color: COLORS.brightGreen,
+        align: 'center',
+      });
+    } else if (!unlocked) {
+      renderer.drawText(ctx, `LOCKED @ ${option.unlockScore}`, fnt(Math.max(9, cardSize - 3), 700), lh, cardX + cardW / 2, cardY + cardH - 18, {
+        color: COLORS.amber,
         align: 'center',
       });
     }
@@ -2087,6 +2098,7 @@ function drawGameOver(s: GameState): void {
 
   const titleBlock = renderer.getBlock('[ PROCESS KILLED ]', fnt(titleSize, 700), lh, innerW);
   const scoreBlock = renderer.getBlock(`FINAL SCORE: ${s.score}`, fnt(bodySize, 700), lh, innerW);
+  const bestBlock = renderer.getBlock(`LOCAL BEST: ${s.bestScore}`, fnt(metaSize, 700), lh, innerW);
   const statsBlock = renderer.getBlock(statsText, fnt(metaSize), lh, innerW);
   const comboBlock = s.bestCombo > 1
     ? renderer.getBlock(`BEST COMBO: ×${s.bestCombo}`, fnt(metaSize, 700), lh, innerW)
@@ -2095,7 +2107,7 @@ function drawGameOver(s: GameState): void {
 
   const contentGap = Math.max(8, Math.round(lh * 0.35));
   const ruleGap = Math.max(10, Math.round(lh * 0.55));
-  let totalHeight = titleBlock.height + ruleGap + scoreBlock.height + contentGap + statsBlock.height + ruleGap + promptBlock.height;
+  let totalHeight = titleBlock.height + ruleGap + scoreBlock.height + contentGap + bestBlock.height + contentGap + statsBlock.height + ruleGap + promptBlock.height;
   if (comboBlock) totalHeight += contentGap + comboBlock.height;
 
   ctx.fillStyle = 'rgba(6,12,20,0.92)';
@@ -2125,6 +2137,9 @@ function drawGameOver(s: GameState): void {
     align: 'center',
   });
   y += scoreBlock.height + contentGap;
+
+  renderer.drawBlock(ctx, bestBlock, cx, y, { color: COLORS.brightGreen, align: 'center' });
+  y += bestBlock.height + contentGap;
 
   renderer.drawBlock(ctx, statsBlock, cx, y, { color: COLORS.dim, align: 'center' });
   y += statsBlock.height;

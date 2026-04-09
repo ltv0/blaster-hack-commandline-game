@@ -20,9 +20,60 @@ const PARTICLE_POOL_MAX = MAX_PARTICLES * 4;
 
 const SNOW_UNLOCK_LEVEL = 3;
 const HAIL_UNLOCK_LEVEL = 6;
+const HIGH_SCORE_STORAGE_KEY = 'blaster-hack-local-best-score';
 
 const hazardPool: Hazard[] = [];
 const particlePool: Particle[] = [];
+
+function readLocalBestScore(): number {
+  if (typeof window === 'undefined' || typeof window.localStorage === 'undefined') return 0;
+  try {
+    const raw = window.localStorage.getItem(HIGH_SCORE_STORAGE_KEY);
+    const parsed = raw ? Number(raw) : 0;
+    return Number.isFinite(parsed) && parsed > 0 ? Math.floor(parsed) : 0;
+  } catch {
+    return 0;
+  }
+}
+
+function writeLocalBestScore(score: number): void {
+  if (typeof window === 'undefined' || typeof window.localStorage === 'undefined') return;
+  try {
+    window.localStorage.setItem(HIGH_SCORE_STORAGE_KEY, String(Math.max(0, Math.floor(score))));
+  } catch {
+    // Ignore storage failures in private mode / blocked storage environments.
+  }
+}
+
+function syncLocalBestScore(state: Pick<GameState, 'score' | 'bestScore'>): number {
+  const bestScore = Math.max(state.bestScore, Math.floor(state.score));
+  if (bestScore !== state.bestScore) {
+    writeLocalBestScore(bestScore);
+  }
+  return bestScore;
+}
+
+function getUnlockedTravelerIndices(bestScore: number): number[] {
+  const unlocked: number[] = [];
+  for (let i = 0; i < TRAVELER_SPRITES.length; i++) {
+    if (TRAVELER_SPRITES[i]!.unlockScore <= bestScore) unlocked.push(i);
+  }
+  return unlocked.length > 0 ? unlocked : [0];
+}
+
+function normalizeTravelerSelection(state: GameState): void {
+  const unlocked = getUnlockedTravelerIndices(state.bestScore);
+  if (!unlocked.includes(state.travelerSpriteIndex)) {
+    state.travelerSpriteIndex = unlocked[0]!;
+  }
+}
+
+function cycleTravelerSelection(state: GameState, direction: -1 | 1): void {
+  const unlocked = getUnlockedTravelerIndices(state.bestScore);
+  const current = unlocked.indexOf(state.travelerSpriteIndex);
+  const next = current >= 0 ? (current + direction + unlocked.length) % unlocked.length : 0;
+  state.travelerSpriteIndex = unlocked[next]!;
+}
 
 function acquireHazard(id: number): Hazard {
   const pooled = hazardPool.pop();
@@ -235,6 +286,7 @@ export interface GameState {
   groundOffset: number;
   bgStarOffset: number;
   score: number;
+  bestScore: number;
   scoreTimer: number;
   combo: number;
   comboTimer: number;
@@ -403,6 +455,7 @@ export function createInitialState(W: number, H: number): GameState {
     bgStarOffset: 0,
 
     score: 0,
+    bestScore: readLocalBestScore(),
     scoreTimer: 0,
     combo: 0,
     comboTimer: 0,
@@ -1530,6 +1583,7 @@ function updatePlaying(state: GameState, dt: number): void {
   updateScorePopups(state, dt);
   updateUmbrellaSlides(state, dt);
   updateHeartExplosions(state, dt);
+  state.bestScore = syncLocalBestScore(state);
 }
 
 function updateParticles(state: GameState, dt: number): void {
@@ -1767,14 +1821,15 @@ function updateClouds(state: GameState, dt: number): void {
 export function handleKeyDown(state: GameState, key: string): void {
   if (state.phase === 'boot' && state.bootDone) {
     if (key === 'Enter' || key === ' ') startGame(state);
-    if (key === 'c' || key === 'C') state.phase = 'cosmetics';
+    if (key === 'c' || key === 'C') {
+      state.phase = 'cosmetics';
+      normalizeTravelerSelection(state);
+    }
   } else if (state.phase === 'cosmetics') {
     if (key === 'ArrowLeft' || key === 'a' || key === 'A') {
-      const count = TRAVELER_SPRITES.length;
-      state.travelerSpriteIndex = (state.travelerSpriteIndex - 1 + count) % count;
+      cycleTravelerSelection(state, -1);
     } else if (key === 'ArrowRight' || key === 'd' || key === 'D') {
-      const count = TRAVELER_SPRITES.length;
-      state.travelerSpriteIndex = (state.travelerSpriteIndex + 1) % count;
+      cycleTravelerSelection(state, 1);
     } else if (key === 'Enter' || key === ' ') {
       startGame(state);
     } else if (key === 'Escape' || key === 'Backspace') {
