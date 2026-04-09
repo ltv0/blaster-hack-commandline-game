@@ -32,7 +32,7 @@ import {
   UMBRELLA_CANOPY,
   UMBRELLA_HANDLE_LINES,
   UMBRELLA_FOOT,
-} from './assest.ts'
+} from './assets.ts'
 import { bindEvents } from './rendering/input.ts'
 import { buildStars, rebuildStars, drawStars, buildAsciiBackground, updateAsciiBackground, drawAsciiBackground, loadSkyText, getBackgroundHoverPosition, isBackgroundHoverActive, getBackgroundCellWidth, type BgOccluder, type BgRepulsor, type BgCircleObstacle, type BgInterval } from './rendering/background.ts'
 import { resumeAudio, handleAudioEvents } from './rendering/audio.ts'
@@ -667,6 +667,7 @@ let PARTICLE_TYPE_WEIGHTS: Record<string, number> = {
   rain: 1.0,
   snow: 0.0,
   hail: 0.0,
+  purpleRain: 0.0,
 };
 
 const SNOW_UNLOCK_LEVEL = 3;
@@ -676,25 +677,28 @@ const HAIL_UNLOCK_LEVEL = 6;
 function updateParticleTypeWeights(level: number) {
   // Level 1: rain 100, snow 0, hail 0
   if (level <= 1) {
-    PARTICLE_TYPE_WEIGHTS = { rain: 1.0, snow: 0.0, hail: 0.0 };
+    PARTICLE_TYPE_WEIGHTS = { rain: 1.0, snow: 0.0, hail: 0.0, purpleRain: 0.0 };
     return;
   }
-  // Each level after unlock: rain -10, snow +5, hail +5 (percentages)
+  // Each level after unlock: rain -10, snow +5, hail +5, purple +4 (percentages)
   let rain = 1.0 - 0.10 * (level - 1);
   let snow = level >= SNOW_UNLOCK_LEVEL ? 0.05 * (level - 1) : 0.0;
   let hail = level >= HAIL_UNLOCK_LEVEL ? 0.05 * (level - 1) : 0.0;
+  let purpleRain = level >= 8 ? 0.04 * (level - 7) : 0.0;
   // Clamp values
   rain = Math.max(0, rain);
   snow = Math.max(0, snow);
   hail = Math.max(0, hail);
+  purpleRain = Math.max(0, purpleRain);
   // Normalize if sum > 1
-  const sum = rain + snow + hail;
+  const sum = rain + snow + hail + purpleRain;
   if (sum > 1) {
     rain /= sum;
     snow /= sum;
     hail /= sum;
+    purpleRain /= sum;
   }
-  PARTICLE_TYPE_WEIGHTS = { rain, snow, hail };
+  PARTICLE_TYPE_WEIGHTS = { rain, snow, hail, purpleRain };
 }
 
 // build an ordinal map so each type maps to a small integer (1..N) for compact storage
@@ -962,21 +966,25 @@ function updateCloudEmitPoints(s: GameState): void {
       }
     }
 
-    // determine dominant visual type for this cloud from sampled emit points
-    const counts = { rain: 0, snow: 0, hail: 0 };
-    for (const ep of emitPoints) {
-      if (ep.pType === 'rain') counts.rain++;
-      else if (ep.pType === 'snow') counts.snow++;
-      else if (ep.pType === 'hail') counts.hail++;
-    }
-    const total = counts.rain + counts.snow + counts.hail;
-    if (total > 0) {
-      let visual: ParticleType = 'rain';
-      if (counts.snow >= counts.rain && counts.snow >= counts.hail) visual = 'snow';
-      else if (counts.hail >= counts.rain && counts.hail >= counts.snow) visual = 'hail';
-      cloud.visualType = visual;
+    if (cloud.type === 'purpleRain') {
+      cloud.visualType = 'purpleRain';
     } else {
-      cloud.visualType = cloud.type;
+      // determine dominant visual type for this cloud from sampled emit points
+      const counts = { rain: 0, snow: 0, hail: 0 };
+      for (const ep of emitPoints) {
+        if (ep.pType === 'rain') counts.rain++;
+        else if (ep.pType === 'snow') counts.snow++;
+        else if (ep.pType === 'hail') counts.hail++;
+      }
+      const total = counts.rain + counts.snow + counts.hail;
+      if (total > 0) {
+        let visual: ParticleType = 'rain';
+        if (counts.snow >= counts.rain && counts.snow >= counts.hail) visual = 'snow';
+        else if (counts.hail >= counts.rain && counts.hail >= counts.snow) visual = 'hail';
+        cloud.visualType = visual;
+      } else {
+        cloud.visualType = cloud.type;
+      }
     }
 
     if (emitPoints.length <= CLOUD_EMIT_MAX_POINTS) {
@@ -1058,12 +1066,18 @@ function drawClouds(s: GameState): void {
 
   const drawCloudRun = (text: string, runType: ParticleType | 'mixed' | undefined, x: number, y: number): void => {
     if (text.length === 0) return;
-    const color = runType === 'snow' ? COLORS.cloudSnow : runType === 'hail' ? COLORS.cloudHail : COLORS.cloudRain;
+    const color = runType === 'snow'
+      ? COLORS.cloudSnow
+      : runType === 'hail'
+        ? COLORS.cloudHail
+        : runType === 'purpleRain'
+          ? COLORS.PURPLE_RAIN
+          : COLORS.cloudRain;
     const glowColor = color;
-    const glowFactor = runType === 'snow' ? 0.95 : runType === 'hail' ? 0.7 : 1.1;
+    const glowFactor = runType === 'snow' ? 0.95 : runType === 'hail' ? 0.7 : runType === 'purpleRain' ? 1.05 : 1.1;
     const haloBlur = Math.max(10, Math.round(size * 2.1 * glowFactor));
     const innerBlur = Math.max(5, Math.round(size * 0.9 * glowFactor));
-    const haloAlpha = runType === 'hail' ? 0.34 : runType === 'snow' ? 0.42 : 0.5;
+    const haloAlpha = runType === 'hail' ? 0.34 : runType === 'snow' ? 0.42 : runType === 'purpleRain' ? 0.48 : 0.5;
     const block = renderer.getBlock(text, f, lineH);
 
     // Traveler-style glow: a soft halo first, then the crisp glyph with a tighter inner glow.
@@ -1156,25 +1170,6 @@ function drawClouds(s: GameState): void {
         drawCloudRun(substr, runType, x, startY + r * lineH);
       }
     }
-  }
-
-  for (const cloud of s.clouds) {
-    if (cloud.type !== 'purpleRain') continue;
-    const cloudBlock = renderer.getBlock(getCloudLines(cloud, s.elapsed).join('\n'), f, lineH);
-    const cloudX = cloud.x - cloudBlock.width / 2;
-    const cloudY = Math.max(startY, cloud.y);
-    renderer.drawBlock(ctx, cloudBlock, cloudX, cloudY, {
-      color: COLORS.PURPLE_RAIN,
-      shadowColor: COLORS.PURPLE_GLOW,
-      shadowBlur: 16,
-      alpha: 0.68,
-    });
-    renderer.drawBlock(ctx, cloudBlock, cloudX, cloudY, {
-      color: COLORS.PURPLE_RAIN,
-      shadowColor: COLORS.PURPLE_GLOW,
-      shadowBlur: 8,
-      alpha: 0.94,
-    });
   }
 }
 

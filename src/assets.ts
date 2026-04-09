@@ -5,7 +5,7 @@ export const CAT_GLYPH = 'C\nA\nT'
 export const DOG_GLYPH = 'D\nO\nG'
 
 export const HAZARD_GLYPHS: Record<HazardDesignType, string[]> = {
-  rain: ['|', '/', '╎', '╏', '¦', CAT_GLYPH, DOG_GLYPH],
+  rain: ['|', 'I', '╎', '╏', '¦', CAT_GLYPH, DOG_GLYPH],
   snow: ['*', '❄', '∗', '✦', '⁎'],
   hail: ['◆', '●', '■', '◉', '◈'],
 }

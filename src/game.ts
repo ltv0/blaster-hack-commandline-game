@@ -6,11 +6,11 @@ import {
   updatePowerUpPickups,
   updatePowerUpTimers,
 } from './power-ups.ts';
-import { CAT_GLYPH, DOG_GLYPH, HAZARD_GLYPHS, UMBRELLA_CANOPY, UMBRELLA_FOOT, UMBRELLA_HANDLE_LINES } from './assest.ts';
+import { CAT_GLYPH, DOG_GLYPH, HAZARD_GLYPHS, UMBRELLA_CANOPY, UMBRELLA_FOOT, UMBRELLA_HANDLE_LINES } from './assets.ts';
 import { loadSkyText } from './rendering/background.ts';
 
 export { powerUpLabel } from './power-ups.ts';
-export { CAT_GLYPH, DOG_GLYPH, HAZARD_GLYPHS } from './assest.ts';
+export { CAT_GLYPH, DOG_GLYPH, HAZARD_GLYPHS } from './assets.ts';
 
 // --- Performance caps ---
 const MAX_HAZARDS = 120;
@@ -677,7 +677,7 @@ function spawnHazardFromCloud(state: GameState, cloud: Cloud): void {
 
   const x = cloud.x + p.dx;
   const y = cloud.y + p.dy;
-  const hazardType = cloud.type === 'purpleRain' ? 'purpleRain' : (p.pType ?? cloud.type);
+  const hazardType = p.pType ?? cloud.type;
   let glyph: string;
   if (hazardType === 'rain') {
     // Keep rain glyph selection stable at higher levels without weighted overflows.
@@ -685,7 +685,7 @@ function spawnHazardFromCloud(state: GameState, cloud: Cloud): void {
     const useAnimalGlyph = level >= 2 && Math.random() < catDogChance;
     glyph = useAnimalGlyph
       ? (Math.random() < 0.5 ? CAT_GLYPH : DOG_GLYPH)
-      : (Math.random() < 0.5 ? '|' : '/');
+      : (Math.random() < 0.5 ? '|' : ':');
   } else if (hazardType === 'purpleRain') {
     glyph = Math.random() < 0.5 ? '!' : '|';
   } else {
