@@ -53,6 +53,33 @@ function syncLocalBestScore(state: Pick<GameState, 'score' | 'bestScore'>): numb
   return bestScore;
 }
 
+export interface HudMenuButtonBounds {
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+}
+
+export function getHudMenuButtonBounds(state: Pick<GameState, 'W' | 'H'>): HudMenuButtonBounds | null {
+  if (state.W >= 900) return null;
+  const size = Math.max(10, Math.min(14, state.W / 70));
+  const barH = size + 42;
+  const w = Math.max(120, Math.round(size * 9.5));
+  const h = Math.max(24, Math.round(size + 10));
+  return {
+    x: 14,
+    y: barH + 8,
+    w,
+    h,
+  };
+}
+
+function returnToBootMenu(state: GameState): void {
+  state.phase = 'boot';
+  state.pointerDown = false;
+  state.keysHeld.clear();
+}
+
 function getUnlockedTravelerIndices(bestScore: number): number[] {
   const unlocked: number[] = [];
   for (let i = 0; i < TRAVELER_SPRITES.length; i++) {
@@ -1819,6 +1846,10 @@ function updateClouds(state: GameState, dt: number): void {
 // ─── Input handlers ───────────────────────────────────────────────────────────
 
 export function handleKeyDown(state: GameState, key: string): void {
+  if (key === 'Escape') {
+    returnToBootMenu(state);
+    return;
+  }
   if (state.phase === 'boot' && state.bootDone) {
     if (key === 'Enter' || key === ' ') startGame(state);
     if (key === 'c' || key === 'C') {
@@ -1833,7 +1864,7 @@ export function handleKeyDown(state: GameState, key: string): void {
     } else if (key === 'Enter' || key === ' ') {
       startGame(state);
     } else if (key === 'Escape' || key === 'Backspace') {
-      state.phase = 'boot';
+      returnToBootMenu(state);
     }
   }
   if (state.phase === 'dead') {
@@ -1859,6 +1890,14 @@ export function handlePointerMove(state: GameState, x: number, y: number): void 
 }
 
 export function handlePointerDown(state: GameState, x: number, y: number): void {
+  if (state.phase === 'playing') {
+    const menuButton = getHudMenuButtonBounds(state);
+    if (menuButton && x >= menuButton.x && x <= menuButton.x + menuButton.w && y >= menuButton.y && y <= menuButton.y + menuButton.h) {
+      returnToBootMenu(state);
+      return;
+    }
+  }
+
   state.pointerDown = true;
   state.pointerX = x;
   state.pointerY = y;

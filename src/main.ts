@@ -8,6 +8,7 @@ import {
   handlePointerDown,
   handlePointerUp,
   computeUmbrellaYBounds,
+  getHudMenuButtonBounds,
   powerUpLabel,
   COLORS,
   type GameState,
@@ -642,7 +643,7 @@ function drawCosmetics(s: GameState): void {
     cardX += cardW + cardGap;
   }
 
-  const helpText = 'ARROWS / A-D SWITCH   ENTER / SPACE DEPLOY   ESC BACK';
+  const helpText = 'ARROWS / A-D SWITCH   ENTER / SPACE DEPLOY   ESC MAIN MENU';
   renderer.drawText(ctx, helpText, bodyFont, lh, cx, panelY + panelH - 38, {
     color: COLORS.amber,
     align: 'center',
@@ -2009,6 +2010,8 @@ function drawHUD(s: GameState): void {
   const pad  = 14;
   const barH = size + 42;
   const textY = Math.round((barH - size) / 2);
+  const menuButton = getHudMenuButtonBounds(s);
+  const scoreX = pad;
 
   ctx.fillStyle = 'rgba(6,12,20,0.9)';
   ctx.fillRect(0, 0, W, barH);
@@ -2017,7 +2020,25 @@ function drawHUD(s: GameState): void {
   ctx.fillRect(0, barH, W, 1);
   ctx.globalAlpha = 1;
 
-  renderer.drawText(ctx, `SCORE: ${String(s.score).padStart(6, '0')}`, fb, size + 2, pad, textY, {
+  if (menuButton) {
+    ctx.save();
+    ctx.fillStyle = 'rgba(18, 35, 23, 0.96)';
+    ctx.strokeStyle = 'rgba(108, 242, 128, 0.65)';
+    ctx.lineWidth = 1;
+    ctx.fillRect(menuButton.x, menuButton.y, menuButton.w, menuButton.h);
+    ctx.strokeRect(menuButton.x + 0.5, menuButton.y + 0.5, menuButton.w - 1, menuButton.h - 1);
+    const menuFont = fnt(size - 1, 700);
+    const menuText = 'MAIN MENU';
+    const menuTextW = renderer.measureWidth(menuText, menuFont);
+    renderer.drawText(ctx, menuText, menuFont, size + 1, menuButton.x + Math.round((menuButton.w - menuTextW) / 2), menuButton.y + Math.round((menuButton.h - (size - 1)) / 2), {
+      color: COLORS.green,
+      shadowColor: COLORS.green,
+      shadowBlur: 6,
+    });
+    ctx.restore();
+  }
+
+  renderer.drawText(ctx, `SCORE: ${String(s.score).padStart(6, '0')}`, fb, size + 2, scoreX, textY, {
     color: COLORS.green, shadowColor: COLORS.green, shadowBlur: 8,
   });
 
@@ -2091,10 +2112,10 @@ function drawGameOver(s: GameState): void {
     ? `SURVIVED: ${Math.floor(s.elapsed)}s\nLEVEL REACHED: ${s.difficultyLevel + 1}`
     : `SURVIVED: ${Math.floor(s.elapsed)}s   LEVEL REACHED: ${s.difficultyLevel + 1}`;
   const promptText = boxW < 380
-    ? '> Press R / ENTER\n> or tap to restart'
+    ? '> Press R / ENTER\n> or tap to restart\n> ESC MAIN MENU'
     : compact
-      ? '> Press R / ENTER\n> tap to restart'
-      : '> Press R / ENTER / tap to restart';
+      ? '> Press R / ENTER\n> tap to restart\n> ESC MAIN MENU'
+      : '> Press R / ENTER / tap to restart / ESC MAIN MENU';
 
   const titleBlock = renderer.getBlock('[ PROCESS KILLED ]', fnt(titleSize, 700), lh, innerW);
   const scoreBlock = renderer.getBlock(`FINAL SCORE: ${s.score}`, fnt(bodySize, 700), lh, innerW);
