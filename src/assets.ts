@@ -32,6 +32,70 @@ export const TRAVELER_ARMS_LEFT = '-| |>'
 export const TRAVELER_ARMS_RIGHT = '<| |-'
 export const TRAVELER_ARMS_IDLE = '/| |\\'
 
+export type TravelerSprite = {
+  name: string
+  heads: readonly string[]
+  jumpHead: string
+  legsIdle: readonly string[]
+  legsWalk: readonly string[]
+  legsRun: readonly string[]
+  armsAscending: string
+  armsDescending: string
+  legsAscending: string
+  legsDescending: string
+  armsLeft: string
+  armsRight: string
+  armsIdle: string
+}
+
+export const TRAVELER_SPRITES: readonly TravelerSprite[] = [
+  {
+    name: 'Classic',
+    heads: TRAVELER_HEADS,
+    jumpHead: TRAVELER_JUMP_HEAD,
+    legsIdle: TRAVELER_LEGS_IDLE,
+    legsWalk: TRAVELER_LEGS_WALK,
+    legsRun: TRAVELER_LEGS_RUN,
+    armsAscending: TRAVELER_ARMS_ASCENDING,
+    armsDescending: TRAVELER_ARMS_DESCENDING,
+    legsAscending: TRAVELER_LEGS_ASCENDING,
+    legsDescending: TRAVELER_LEGS_DESCENDING,
+    armsLeft: TRAVELER_ARMS_LEFT,
+    armsRight: TRAVELER_ARMS_RIGHT,
+    armsIdle: TRAVELER_ARMS_IDLE,
+  },
+  {
+    name: 'Circuit',
+    heads: ['[o_o]'],
+    jumpHead: '[O_O]',
+    legsIdle: ['|  |', '|  |'],
+    legsWalk: ['|  |', ' /\\ ', '|  |', ' \\/ '],
+    legsRun: ['|  |', ' /\\ ', '|  |', ' \\/ '],
+    armsAscending: '\\= =/',
+    armsDescending: '/= =\\',
+    legsAscending: '^ ^',
+    legsDescending: 'v v',
+    armsLeft: '-= =|',
+    armsRight: '|= =-',
+    armsIdle: '/= =\\',
+  },
+  {
+    name: 'Specter',
+    heads: ['(o_o)'],
+    jumpHead: '(O_O)',
+    legsIdle: ['/  \\', '/  \\'],
+    legsWalk: ['/~~\\', ' || ', '/~~\\', ' || '],
+    legsRun: ['/~~\\', ' || ', '/~~\\', ' || '],
+    armsAscending: '\\~ ~/',
+    armsDescending: '/~ ~\\',
+    legsAscending: '^ ^',
+    legsDescending: 'v v',
+    armsLeft: '-~ ~>',
+    armsRight: '<~ ~-',
+    armsIdle: '/~ ~\\',
+  },
+] as const
+
 export const UMBRELLA_CANOPY = [
   "           ___.----' `----.___",
   "       _.-'   .-'  .  `   -   `-._",

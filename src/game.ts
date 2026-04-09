@@ -6,7 +6,7 @@ import {
   updatePowerUpPickups,
   updatePowerUpTimers,
 } from './power-ups.ts';
-import { CAT_GLYPH, DOG_GLYPH, HAZARD_GLYPHS, UMBRELLA_CANOPY, UMBRELLA_FOOT, UMBRELLA_HANDLE_LINES } from './assets.ts';
+import { CAT_GLYPH, DOG_GLYPH, HAZARD_GLYPHS, TRAVELER_SPRITES, UMBRELLA_CANOPY, UMBRELLA_FOOT, UMBRELLA_HANDLE_LINES } from './assets.ts';
 import { loadSkyText } from './rendering/background.ts';
 
 export { powerUpLabel } from './power-ups.ts';
@@ -78,7 +78,7 @@ function releaseParticle(particle: Particle): void {
   particlePool.push(particle);
 }
 
-export type GamePhase = 'boot' | 'playing' | 'dead';
+export type GamePhase = 'boot' | 'cosmetics' | 'playing' | 'dead';
 
 export interface Hazard {
   id: number;
@@ -268,6 +268,7 @@ export interface GameState {
   umbrellaArtWidth: number;
   umbrellaArtStartY: number;
   umbrellaArtLineH: number;
+  travelerSpriteIndex: number;
   pointerX: number;
   pointerY: number;
   pointerDown: boolean;
@@ -285,6 +286,7 @@ export const BOOT_LINES = [
   'Scanning for travelers...  FOUND (1)',
   '\u26a0  WARNING: Severe weather incoming.',
   '> Press ENTER or SPACE to deploy _',
+  '  C: cosmetics field',
 ];
 
 export const COLORS = {
@@ -445,6 +447,8 @@ export function createInitialState(W: number, H: number): GameState {
     umbrellaArtWidth: 0,
     umbrellaArtStartY: 0,
     umbrellaArtLineH: 0,
+
+    travelerSpriteIndex: 0,
 
     audioEvents: [],
   };
@@ -1218,6 +1222,7 @@ export function update(state: GameState, dt: number): void {
     }
   state.audioEvents = [];
   if (state.phase === 'boot') { updateBoot(state, dt); return; }
+    if (state.phase === 'cosmetics') { return; }
   if (state.phase === 'dead') { updateDead(state, dt); return; }
   updatePlaying(state, dt);
 }
@@ -1762,6 +1767,19 @@ function updateClouds(state: GameState, dt: number): void {
 export function handleKeyDown(state: GameState, key: string): void {
   if (state.phase === 'boot' && state.bootDone) {
     if (key === 'Enter' || key === ' ') startGame(state);
+    if (key === 'c' || key === 'C') state.phase = 'cosmetics';
+  } else if (state.phase === 'cosmetics') {
+    if (key === 'ArrowLeft' || key === 'a' || key === 'A') {
+      const count = TRAVELER_SPRITES.length;
+      state.travelerSpriteIndex = (state.travelerSpriteIndex - 1 + count) % count;
+    } else if (key === 'ArrowRight' || key === 'd' || key === 'D') {
+      const count = TRAVELER_SPRITES.length;
+      state.travelerSpriteIndex = (state.travelerSpriteIndex + 1) % count;
+    } else if (key === 'Enter' || key === ' ') {
+      startGame(state);
+    } else if (key === 'Escape' || key === 'Backspace') {
+      state.phase = 'boot';
+    }
   }
   if (state.phase === 'dead') {
     if (key === 'r' || key === 'R' || key === 'Enter' || key === ' ') restartGame(state);
@@ -1821,6 +1839,7 @@ function restartGame(state: GameState): void {
   const fresh = createInitialState(W, H);
   fresh.phase = 'playing';
   fresh.bootDone = true;
+  fresh.travelerSpriteIndex = state.travelerSpriteIndex;
   fresh.keysHeld = state.keysHeld; // preserve live key state across restart
   fresh.keysHeld.clear();
   Object.assign(state, fresh);

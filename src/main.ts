@@ -17,18 +17,7 @@ import {
 import {
   CLOUD_CHARSET,
   CLOUD_CHARSETS,
-  TRAVELER_HEADS,
-  TRAVELER_JUMP_HEAD,
-  TRAVELER_LEGS_IDLE,
-  TRAVELER_LEGS_WALK,
-  TRAVELER_LEGS_RUN,
-  TRAVELER_ARMS_ASCENDING,
-  TRAVELER_ARMS_DESCENDING,
-  TRAVELER_LEGS_ASCENDING,
-  TRAVELER_LEGS_DESCENDING,
-  TRAVELER_ARMS_LEFT,
-  TRAVELER_ARMS_RIGHT,
-  TRAVELER_ARMS_IDLE,
+  TRAVELER_SPRITES,
   UMBRELLA_CANOPY,
   UMBRELLA_HANDLE_LINES,
   UMBRELLA_FOOT,
@@ -401,6 +390,7 @@ function draw(s: GameState): void {
   ctx.fillStyle = frameBgGradient;
   ctx.fillRect(0, 0, W, H);
   if (s.phase === 'boot') { drawBoot(s); }
+  else if (s.phase === 'cosmetics') { drawCosmetics(s); }
   else { drawGame(s); if (s.phase === 'dead') drawGameOver(s); }
 }
 
@@ -457,6 +447,196 @@ function drawBoot(s: GameState): void {
   }
   renderer.drawText(ctx, 'BLASTER HACK COMMANDLINE GAME  //  v1.0', fnt(size - 3), lh,
     cx, H - 18, { color: COLORS.dim, align: 'center', alpha: 0.4 });
+}
+
+type TravelerSprite = (typeof TRAVELER_SPRITES)[number];
+
+function getTravelerSprite(index: number): TravelerSprite {
+  const count = TRAVELER_SPRITES.length;
+  const safeIndex = ((index % count) + count) % count;
+  return TRAVELER_SPRITES[safeIndex] ?? TRAVELER_SPRITES[0]!;
+}
+
+function drawTravelerSprite(
+  sprite: TravelerSprite,
+  x: number,
+  y: number,
+  size: number,
+  options: {
+    airborne: boolean;
+    speedFrac: number;
+    headIndex?: number;
+    legIndex?: number;
+    movingVX?: number;
+    jumpVY?: number;
+    glow: string;
+    bodyColor: string;
+    wobble?: number;
+    alpha?: number;
+  },
+): void {
+  const font = fnt(size, 700);
+  const lineH = size + 2;
+  const headIndex = Math.max(0, options.headIndex ?? 0) % sprite.heads.length;
+  const legIndex = Math.max(0, options.legIndex ?? 0);
+  const movingVX = options.movingVX ?? 0;
+  const jumpVY = options.jumpVY ?? 0;
+  const airborne = options.airborne;
+  const speedFrac = options.speedFrac;
+  const glow = options.glow;
+  const bodyColor = options.bodyColor;
+  const wobble = options.wobble ?? 0;
+  const alpha = options.alpha ?? 1;
+
+  const groundLegFrames = speedFrac > 0.6 ? sprite.legsRun : speedFrac > 0.15 ? sprite.legsWalk : sprite.legsIdle;
+  const groundLegStr = groundLegFrames[legIndex % groundLegFrames.length] ?? sprite.legsIdle[0] ?? '';
+  const armsJump = jumpVY < 0 ? sprite.armsAscending : sprite.armsDescending;
+  const legsJump = jumpVY < 0 ? sprite.legsAscending : sprite.legsDescending;
+  const armsStr = movingVX < -10 ? sprite.armsLeft : movingVX > 10 ? sprite.armsRight : sprite.armsIdle;
+
+  const headStr = airborne ? sprite.jumpHead : sprite.heads[headIndex] ?? sprite.heads[0] ?? '';
+  const headBlock = renderer.getBlock(headStr, font, lineH);
+  renderer.drawBlock(ctx, headBlock, x + wobble, y, {
+    color: glow,
+    shadowColor: glow,
+    shadowBlur: airborne ? 20 : 14,
+    align: 'center',
+    alpha: alpha * 0.45,
+  });
+  renderer.drawBlock(ctx, headBlock, x + wobble, y, {
+    color: bodyColor,
+    shadowColor: glow,
+    shadowBlur: airborne ? 8 : 5,
+    align: 'center',
+    alpha,
+  });
+
+  const armsBlock = renderer.getBlock(airborne ? armsJump : armsStr, font, lineH);
+  renderer.drawBlock(ctx, armsBlock, x + wobble, y + size + 2, { color: bodyColor, align: 'center', alpha });
+
+  const legsBlock = renderer.getBlock(airborne ? legsJump : groundLegStr, font, lineH);
+  renderer.drawBlock(ctx, legsBlock, x + wobble, y + size * 2 + 2, { color: bodyColor, align: 'center', alpha });
+
+  if (!airborne && speedFrac > 0.65) {
+    const trailAlpha = ((speedFrac - 0.65) / 0.35) * 0.28 * alpha;
+    renderer.drawBlock(ctx, headBlock, x + wobble - movingVX * 0.045, y, { color: bodyColor, align: 'center', alpha: trailAlpha });
+  }
+}
+
+function drawCosmetics(s: GameState): void {
+  drawAsciiBackground(0, 0.18, COLORS.brightGreen, [], [], [], false);
+  drawScanlines(0.05);
+
+  const sprite = getTravelerSprite(s.travelerSpriteIndex);
+  const cx = W / 2;
+  const cy = H / 2;
+  const panelW = Math.min(760, W - 40);
+  const panelH = Math.min(520, H - 40);
+  const panelX = Math.round(cx - panelW / 2);
+  const panelY = Math.round(cy - panelH / 2);
+
+  ctx.save();
+  ctx.fillStyle = 'rgba(2, 8, 12, 0.84)';
+  ctx.fillRect(panelX, panelY, panelW, panelH);
+  ctx.strokeStyle = 'rgba(140, 255, 159, 0.36)';
+  ctx.lineWidth = 2;
+  ctx.strokeRect(panelX + 1, panelY + 1, panelW - 2, panelH - 2);
+  ctx.restore();
+
+  const titleSize = sz(W / 44, 18, 26);
+  const bodySize = sz(W / 64, 11, 16);
+  const cardSize = Math.max(10, bodySize - 1);
+  const titleFont = fnt(titleSize, 700);
+  const bodyFont = fnt(bodySize);
+  const cardFont = fnt(cardSize, 700);
+  const lh = Math.round(bodySize + 6);
+
+  renderer.drawText(ctx, 'COSMETICS FIELD', titleFont, lh, cx, panelY + 36, {
+    color: COLORS.brightGreen,
+    shadowColor: COLORS.brightGreen,
+    shadowBlur: 16,
+    align: 'center',
+  });
+  renderer.drawText(ctx, 'Choose a traveler sprite before deploying.', bodyFont, lh, cx, panelY + 72, {
+    color: COLORS.white,
+    align: 'center',
+    alpha: 0.85,
+  });
+
+  const previewX = panelX + panelW * 0.5;
+  const previewY = panelY + panelH * 0.57;
+  drawTravelerSprite(sprite, previewX, previewY, sz(W / 34, 16, 28), {
+    airborne: false,
+    speedFrac: 0,
+    headIndex: 0,
+    legIndex: 0,
+    movingVX: 0,
+    jumpVY: 0,
+    glow: COLORS.brightGreen,
+    bodyColor: COLORS.traveler,
+    wobble: Math.sin(Date.now() / 500) * 2,
+  });
+
+  const currentLabel = `SELECTED: ${sprite.name}`;
+  renderer.drawText(ctx, currentLabel, cardFont, lh, panelX + panelW * 0.5, panelY + panelH * 0.82, {
+    color: COLORS.brightGreen,
+    align: 'center',
+    shadowColor: COLORS.brightGreen,
+    shadowBlur: 10,
+  });
+
+  const cardsTop = panelY + panelH * 0.18;
+  const cardW = Math.min(180, Math.max(140, (panelW - 80) / TRAVELER_SPRITES.length - 10));
+  const cardH = 120;
+  const cardGap = 14;
+  const totalCardsW = TRAVELER_SPRITES.length * cardW + (TRAVELER_SPRITES.length - 1) * cardGap;
+  let cardX = Math.round(panelX + panelW * 0.5 - totalCardsW / 2);
+
+  for (let i = 0; i < TRAVELER_SPRITES.length; i++) {
+    const option = TRAVELER_SPRITES[i]!;
+    const selected = i === s.travelerSpriteIndex;
+    const cardY = Math.round(cardsTop);
+    ctx.save();
+    ctx.fillStyle = selected ? 'rgba(108, 242, 128, 0.14)' : 'rgba(8, 16, 22, 0.88)';
+    ctx.fillRect(cardX, cardY, cardW, cardH);
+    ctx.strokeStyle = selected ? 'rgba(140, 255, 159, 0.9)' : 'rgba(103, 115, 127, 0.55)';
+    ctx.lineWidth = selected ? 3 : 1;
+    ctx.strokeRect(cardX + 1, cardY + 1, cardW - 2, cardH - 2);
+    ctx.restore();
+
+    renderer.drawText(ctx, option.name, cardFont, lh, cardX + cardW / 2, cardY + 22, {
+      color: selected ? COLORS.brightGreen : COLORS.dim,
+      align: 'center',
+      shadowColor: selected ? COLORS.brightGreen : COLORS.dim,
+      shadowBlur: selected ? 10 : 0,
+    });
+    drawTravelerSprite(option, cardX + cardW / 2, cardY + 56, Math.max(12, cardSize - 1), {
+      airborne: false,
+      speedFrac: 0,
+      headIndex: 0,
+      legIndex: 0,
+      movingVX: 0,
+      jumpVY: 0,
+      glow: selected ? COLORS.brightGreen : COLORS.dim,
+      bodyColor: selected ? COLORS.traveler : COLORS.dim,
+    });
+
+    if (selected) {
+      renderer.drawText(ctx, 'ACTIVE', fnt(Math.max(9, cardSize - 2), 700), lh, cardX + cardW / 2, cardY + cardH - 18, {
+        color: COLORS.brightGreen,
+        align: 'center',
+      });
+    }
+
+    cardX += cardW + cardGap;
+  }
+
+  const helpText = 'ARROWS / A-D SWITCH   ENTER / SPACE DEPLOY   ESC BACK';
+  renderer.drawText(ctx, helpText, bodyFont, lh, cx, panelY + panelH - 38, {
+    color: COLORS.amber,
+    align: 'center',
+    alpha: 0.95,
+  });
 }
 
 // ─── Sky text background ──────────────────────────────────────────────────────
@@ -1244,47 +1424,36 @@ function drawTraveler(s: GameState): void {
   const maxSpeed = s.travelerMaxSpeed || 220;
   const speedFrac = speed / maxSpeed;
   const airborne = s.isJumping;
+  const sprite = getTravelerSprite(s.travelerSpriteIndex);
   tTimer += 0.016;
   const headInterval = speedFrac > 0.6 ? 0.10 : speedFrac > 0.2 ? 0.15 : 0.22;
-  if (tTimer > headInterval) { tTimer = 0; tFrame = (tFrame + 1) % TRAVELER_HEADS.length; }
+  if (tTimer > headInterval) { tTimer = 0; tFrame = (tFrame + 1) % sprite.heads.length; }
   if (!airborne) {
     tLegTimer += 0.016;
     const legInterval = speedFrac > 0.6 ? 0.07 : speedFrac > 0.15 ? 0.12 : 0.3;
     if (tLegTimer > legInterval) {
       tLegTimer = 0;
-      const lfc = speedFrac > 0.6 ? TRAVELER_LEGS_RUN.length : speedFrac > 0.15 ? TRAVELER_LEGS_WALK.length : TRAVELER_LEGS_IDLE.length;
+      const lfc = speedFrac > 0.6 ? sprite.legsRun.length : speedFrac > 0.15 ? sprite.legsWalk.length : sprite.legsIdle.length;
       tLegFrame = (tLegFrame + 1) % lfc;
     }
   }
-  const legFrames = speedFrac > 0.6 ? TRAVELER_LEGS_RUN : speedFrac > 0.15 ? TRAVELER_LEGS_WALK : TRAVELER_LEGS_IDLE;
-  const groundLegStr = legFrames[tLegFrame % legFrames.length];
-  const armsJump = s.travelerVY < 0 ? TRAVELER_ARMS_ASCENDING : TRAVELER_ARMS_DESCENDING;
-  const legsJump = s.travelerVY < 0 ? TRAVELER_LEGS_ASCENDING : TRAVELER_LEGS_DESCENDING;
-  const moving = s.travelerVX;
-  const armsStr = moving < -10 ? TRAVELER_ARMS_LEFT : moving > 10 ? TRAVELER_ARMS_RIGHT : TRAVELER_ARMS_IDLE;
   const size = sz(W / 40, 14, 22);
-  const f = fnt(size, 700);
-  const lh = size + 2;
   const visible = s.hitCooldown > 0 ? (Math.floor(s.hitCooldown * 9) % 2 === 0) : true;
   if (!visible) return;
   const glow = s.hitCooldown > 0 ? COLORS.brightRed : airborne ? COLORS.brightAmber : COLORS.brightGreen;
   const wobble = !airborne && speedFrac > 0.7 ? Math.sin(Date.now() / 55) * 1.5 : 0;
   const tx = s.travelerX + wobble;
-
-  const headStr = airborne ? TRAVELER_JUMP_HEAD : TRAVELER_HEADS[tFrame];
-  const headBlock = renderer.getBlock(headStr, f, lh);
-  // Glow halo
-  renderer.drawBlock(ctx, headBlock, tx, s.travelerY, { color: glow, shadowColor: glow, shadowBlur: airborne ? 20 : 14, align: 'center', alpha: 0.45 });
-  // Solid character
-  renderer.drawBlock(ctx, headBlock, tx, s.travelerY, { color: COLORS.traveler, shadowColor: glow, shadowBlur: airborne ? 8 : 5, align: 'center' });
-  const armsBlock = renderer.getBlock(airborne ? armsJump : armsStr, f, lh);
-  renderer.drawBlock(ctx, armsBlock, tx, s.travelerY + size + 2, { color: COLORS.traveler, align: 'center' });
-  const legsBlock = renderer.getBlock(airborne ? legsJump : groundLegStr, f, lh);
-  renderer.drawBlock(ctx, legsBlock, tx, s.travelerY + size * 2 + 2, { color: COLORS.traveler, align: 'center' });
-  if (!airborne && speedFrac > 0.65) {
-    const trailAlpha = (speedFrac - 0.65) / 0.35 * 0.28;
-    renderer.drawBlock(ctx, headBlock, tx - s.travelerVX * 0.045, s.travelerY, { color: COLORS.traveler, align: 'center', alpha: trailAlpha });
-  }
+  drawTravelerSprite(sprite, tx, s.travelerY, size, {
+    airborne,
+    speedFrac,
+    headIndex: tFrame,
+    legIndex: tLegFrame,
+    movingVX: s.travelerVX,
+    jumpVY: s.travelerVY,
+    glow,
+    bodyColor: COLORS.traveler,
+    wobble,
+  });
 }
 
 // Hazards
