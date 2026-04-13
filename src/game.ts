@@ -74,6 +74,37 @@ export function getHudMenuButtonBounds(state: Pick<GameState, 'W' | 'H'>): HudMe
   };
 }
 
+export interface BootButtons {
+  cosmetics: HudMenuButtonBounds;
+  settings: HudMenuButtonBounds;
+}
+
+export function getBootButtonBounds(state: Pick<GameState, 'W' | 'H' | 'bootLines'>): BootButtons {
+  const clamp = (v: number, a: number, b: number) => Math.max(a, Math.min(b, v));
+  const cx = state.W / 2;
+  const lh = clamp(state.H / 24, 20, 28);
+  const size = clamp(state.W / 60, 11, 15);
+  const startY = state.H * 0.18;
+  const panelW = Math.min(640, state.W - 48);
+  const panelX = Math.round(cx - panelW / 2);
+  const panelY = startY - lh * 2.8;
+  const headerH = lh * 1.4;
+  const visibleLineCount = Math.max(1, Math.min(state.bootLines ? state.bootLines.length : 0, 5));
+  const panelH = headerH + lh * (visibleLineCount + 0.8);
+
+  const btnH = Math.max(28, Math.round(lh * 1.2));
+  const btnW = Math.min(220, Math.round(panelW * 0.42));
+  const gap = 12;
+  const totalW = btnW * 2 + gap;
+  const leftX = Math.round(cx - totalW / 2);
+  const btnY = Math.round(panelY + panelH + 14);
+
+  return {
+    cosmetics: { x: leftX, y: btnY, w: btnW, h: btnH },
+    settings: { x: leftX + btnW + gap, y: btnY, w: btnW, h: btnH },
+  };
+}
+
 function returnToBootMenu(state: GameState): void {
   state.phase = 'boot';
   state.pointerDown = false;
@@ -312,6 +343,7 @@ export interface GameState {
   powerUpPickupIdCounter: number;
   groundOffset: number;
   bgStarOffset: number;
+  backgroundTextOpacity: number;
   score: number;
   bestScore: number;
   scoreTimer: number;
@@ -364,9 +396,7 @@ export const BOOT_LINES = [
   'Calibrating umbrella servo............OK',
   'Scanning for travelers...  FOUND (1)',
   '\u26a0  WARNING: Severe weather incoming.',
-  '> Press ENTER or SPACE to deploy _',
-  '  C: cosmetics field',
-];
+  '> Press ENTER or SPACE to deploy _',];
 
 export const COLORS = {
   bg:          '#0d1117',
@@ -480,6 +510,7 @@ export function createInitialState(W: number, H: number): GameState {
 
     groundOffset: 0,
     bgStarOffset: 0,
+    backgroundTextOpacity: 1.0,
 
     score: 0,
     bestScore: readLocalBestScore(),

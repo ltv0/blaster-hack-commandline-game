@@ -8,6 +8,7 @@ import {
   handlePointerDown,
   handlePointerUp,
   computeUmbrellaYBounds,
+  getBootButtonBounds,
   getHudMenuButtonBounds,
   powerUpLabel,
   COLORS,
@@ -24,6 +25,7 @@ import {
   UMBRELLA_FOOT,
 } from './assets.ts'
 import { bindEvents } from './rendering/input.ts'
+import { initSettings, closeSettings } from './ui/settings.ts'
 import { buildStars, rebuildStars, drawStars, buildAsciiBackground, updateAsciiBackground, drawAsciiBackground, loadSkyText, getBackgroundHoverPosition, isBackgroundHoverActive, getBackgroundCellWidth, type BgOccluder, type BgRepulsor, type BgCircleObstacle, type BgInterval } from './rendering/background.ts'
 import { resumeAudio, handleAudioEvents } from './rendering/audio.ts'
 import { canvas, ctx, renderer, W, H, fnt, sz, setViewportSize } from './rendering/canvas.ts'
@@ -281,6 +283,8 @@ function init(): void {
     buildAsciiBackground()
     initParticleSystem(state)
   })
+  // Initialize settings UI (centralized module)
+  initSettings(state);
   requestAnimationFrame(loop)
 }
 let lastTime = 0;
@@ -298,6 +302,8 @@ function loop(ts: number): void {
   updateUmbrellaPhysics(state, dt);
   updateAsciiBackground(dt);
   handleAudioEvents(state.audioEvents);
+  // Ensure settings overlay closes when entering the main game
+  try { if (state.phase === 'playing') closeSettings(); } catch {}
   draw(state);
   requestAnimationFrame(loop);
 }
@@ -408,8 +414,7 @@ function drawBoot(s: GameState): void {
   const maxVisibleLines = 5;
   const visibleLineCount = Math.max(1, Math.min(s.bootLines.length, maxVisibleLines));
   const panelH = headerH + lh * (visibleLineCount + 0.8);
-
-  drawAsciiBackground(0, 0.24, COLORS.brightGreen, [], [], [], false);
+  drawAsciiBackground(0, 0.24 * s.backgroundTextOpacity, COLORS.brightGreen, [], [], [], false);
   drawScanlines(0.04);
 
   ctx.save();
@@ -446,6 +451,43 @@ function drawBoot(s: GameState): void {
       renderer.drawText(ctx, line, f, lh, panelX + 18, yPos, { color });
     }
   }
+  // Buttons (Cosmetics + Settings) below the terminal panel
+  const btnH = Math.max(28, Math.round(lh * 1.2));
+  const btns = getBootButtonBounds(s);
+  const cosmeticsX = btns.cosmetics.x;
+  const settingsX = btns.settings.x;
+  const btnW = btns.cosmetics.w;
+  const btnY = btns.cosmetics.y;
+
+  // Cosmetics button
+  ctx.save();
+  ctx.fillStyle = 'rgba(8, 12, 18, 0.92)';
+  ctx.fillRect(cosmeticsX, btnY, btnW, btnH);
+  ctx.strokeStyle = 'rgba(140, 255, 159, 0.14)';
+  ctx.lineWidth = 1;
+  ctx.strokeRect(cosmeticsX + 1, btnY + 1, btnW - 2, btnH - 2);
+  ctx.restore();
+
+  // Settings button
+  ctx.save();
+  ctx.fillStyle = 'rgba(8, 12, 18, 0.92)';
+  ctx.fillRect(settingsX, btnY, btnW, btnH);
+  ctx.strokeStyle = 'rgba(140, 255, 159, 0.14)';
+  ctx.lineWidth = 1;
+  ctx.strokeRect(settingsX + 1, btnY + 1, btnW - 2, btnH - 2);
+  ctx.restore();
+
+  // Labels
+  const labelFontSize = Math.max(11, size - 2);
+  const labelFont = fnt(labelFontSize, 700);
+  const labelLH = Math.max(12, Math.min(btnH - 6, Math.round(labelFontSize * 1.35)));
+  renderer.drawText(ctx, 'Cosmetics', labelFont, labelLH, cosmeticsX + btnW / 2, btnY + btnH / 2, {
+    color: COLORS.brightGreen, align: 'center', shadowColor: COLORS.brightGreen, shadowBlur: 8, verticalAlign: 'middle',
+  });
+  renderer.drawText(ctx, 'Settings', labelFont, labelLH, settingsX + btnW / 2, btnY + btnH / 2, {
+    color: COLORS.brightGreen, align: 'center', shadowColor: COLORS.brightGreen, shadowBlur: 8, verticalAlign: 'middle',
+  });
+
   renderer.drawText(ctx, 'BLASTER HACK COMMANDLINE GAME  //  v1.0', fnt(size - 3), lh,
     cx, H - 18, { color: COLORS.dim, align: 'center', alpha: 0.4 });
 }
@@ -525,7 +567,7 @@ function drawTravelerSprite(
 }
 
 function drawCosmetics(s: GameState): void {
-  drawAsciiBackground(0, 0.18, COLORS.brightGreen, [], [], [], false);
+  drawAsciiBackground(0, 0.18 * s.backgroundTextOpacity, COLORS.brightGreen, [], [], [], false);
   drawScanlines(0.05);
 
   const sprite = getTravelerSprite(s.travelerSpriteIndex);
@@ -772,7 +814,7 @@ function drawGame(s: GameState): void {
   drawStars(s);
   drawAsciiBackground(
     s.bgStarOffset * 0.3,
-    0.15,
+    0.15 * s.backgroundTextOpacity,
     '#8bc98b',
     repulsors,
     occluders,

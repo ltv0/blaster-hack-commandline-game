@@ -17,3 +17,45 @@ html, body {
   height: 100%;
   image-rendering: pixelated;
 }
+
+/* Settings overlay for background opacity */
+#settings-overlay {
+  position: fixed;
+  left: 50%;
+  top: 20px;
+  transform: translateX(-50%);
+  z-index: 2000;
+  pointer-events: auto;
+  font-family: system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial;
+}
+#settings-overlay .settings-panel {
+  background: rgba(4, 8, 12, 0.92);
+  color: #eaf6ff;
+  padding: 12px 14px;
+  border-radius: 8px;
+  border: 1px solid rgba(140,255,159,0.12);
+  box-shadow: 0 6px 20px rgba(0,0,0,0.6);
+  min-width: 220px;
+  width: 260px;
+  max-width: 86vw;
+  box-sizing: border-box;
+}
+#settings-overlay .settings-title {
+  color: #8cff9f;
+  font-weight: 700;
+  margin-bottom: 8px;
+}
+#settings-overlay .settings-label {
+  display: block;
+  font-size: 13px;
+  margin-bottom: 6px;
+  color: #dbeff8;
+}
+#settings-overlay input[type=range] {
+  width: 100%;
+}
+#settings-overlay .settings-note {
+  font-size: 12px;
+  margin-top: 8px;
+  color: rgba(255,255,255,0.6);
+}
