@@ -32,7 +32,7 @@ import {
   UMBRELLA_CANOPY,
   UMBRELLA_HANDLE_LINES,
   UMBRELLA_FOOT,
-} from './assest.ts'
+} from './assets.ts'
 import { bindEvents } from './rendering/input.ts'
 import { buildStars, rebuildStars, drawStars, buildAsciiBackground, updateAsciiBackground, drawAsciiBackground, loadSkyText, getBackgroundHoverPosition, isBackgroundHoverActive, getBackgroundCellWidth, type BgOccluder, type BgRepulsor, type BgCircleObstacle, type BgInterval } from './rendering/background.ts'
 import { resumeAudio, handleAudioEvents } from './rendering/audio.ts'
