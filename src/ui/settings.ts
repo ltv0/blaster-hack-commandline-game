@@ -32,15 +32,19 @@ export function initSettings(state: GameState): void {
   if (stateRef) stateRef.backgroundTextOpacity = isFinite(initial) ? initial : 1.0
 
   if (rangeEl && stateRef) {
-    rangeEl.value = String(Math.round(stateRef.backgroundTextOpacity * 100))
+    const state = stateRef
+    rangeEl.value = String(Math.round(state.backgroundTextOpacity * 100))
     rangeEl.addEventListener('input', (ev) => {
       const v = Number((ev.target as HTMLInputElement).value) / 100
-      if (stateRef) stateRef.backgroundTextOpacity = isFinite(v) ? v : 1.0
-      if (valueEl) valueEl.textContent = `${Math.round((stateRef.backgroundTextOpacity) * 100)}%`
-      try { window.localStorage.setItem(SETTINGS_KEY, String(stateRef.backgroundTextOpacity)) } catch {}
+      state.backgroundTextOpacity = isFinite(v) ? v : 1.0
+      if (valueEl) valueEl.textContent = `${Math.round(state.backgroundTextOpacity * 100)}%`
+      try { window.localStorage.setItem(SETTINGS_KEY, String(state.backgroundTextOpacity)) } catch {}
     })
   }
-  if (valueEl && stateRef) valueEl.textContent = `${Math.round(stateRef.backgroundTextOpacity * 100)}%`
+  if (valueEl && stateRef) {
+    const state = stateRef
+    valueEl.textContent = `${Math.round(state.backgroundTextOpacity * 100)}%`
+  }
 
   // Toggle with S
   window.addEventListener('keydown', (e) => {

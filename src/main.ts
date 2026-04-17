@@ -8,8 +8,6 @@ import {
   handlePointerDown,
   handlePointerUp,
   computeUmbrellaYBounds,
-  getBootButtonBounds,
-  getHudMenuButtonBounds,
   powerUpLabel,
   COLORS,
   type GameState,
@@ -19,13 +17,23 @@ import {
 import {
   CLOUD_CHARSET,
   CLOUD_CHARSETS,
-  TRAVELER_SPRITES,
+  TRAVELER_HEADS,
+  TRAVELER_JUMP_HEAD,
+  TRAVELER_LEGS_IDLE,
+  TRAVELER_LEGS_WALK,
+  TRAVELER_LEGS_RUN,
+  TRAVELER_ARMS_ASCENDING,
+  TRAVELER_ARMS_DESCENDING,
+  TRAVELER_LEGS_ASCENDING,
+  TRAVELER_LEGS_DESCENDING,
+  TRAVELER_ARMS_LEFT,
+  TRAVELER_ARMS_RIGHT,
+  TRAVELER_ARMS_IDLE,
   UMBRELLA_CANOPY,
   UMBRELLA_HANDLE_LINES,
   UMBRELLA_FOOT,
-} from './assets.ts'
+} from './assest.ts'
 import { bindEvents } from './rendering/input.ts'
-import { initSettings, closeSettings } from './ui/settings.ts'
 import { buildStars, rebuildStars, drawStars, buildAsciiBackground, updateAsciiBackground, drawAsciiBackground, loadSkyText, getBackgroundHoverPosition, isBackgroundHoverActive, getBackgroundCellWidth, type BgOccluder, type BgRepulsor, type BgCircleObstacle, type BgInterval } from './rendering/background.ts'
 import { resumeAudio, handleAudioEvents } from './rendering/audio.ts'
 import { canvas, ctx, renderer, W, H, fnt, sz, setViewportSize } from './rendering/canvas.ts'
@@ -283,8 +291,6 @@ function init(): void {
     buildAsciiBackground()
     initParticleSystem(state)
   })
-  // Initialize settings UI (centralized module)
-  initSettings(state);
   requestAnimationFrame(loop)
 }
 let lastTime = 0;
@@ -302,8 +308,6 @@ function loop(ts: number): void {
   updateUmbrellaPhysics(state, dt);
   updateAsciiBackground(dt);
   handleAudioEvents(state.audioEvents);
-  // Ensure settings overlay closes when entering the main game
-  try { if (state.phase === 'playing') closeSettings(); } catch {}
   draw(state);
   requestAnimationFrame(loop);
 }
@@ -397,7 +401,6 @@ function draw(s: GameState): void {
   ctx.fillStyle = frameBgGradient;
   ctx.fillRect(0, 0, W, H);
   if (s.phase === 'boot') { drawBoot(s); }
-  else if (s.phase === 'cosmetics') { drawCosmetics(s); }
   else { drawGame(s); if (s.phase === 'dead') drawGameOver(s); }
 }
 
@@ -414,7 +417,8 @@ function drawBoot(s: GameState): void {
   const maxVisibleLines = 5;
   const visibleLineCount = Math.max(1, Math.min(s.bootLines.length, maxVisibleLines));
   const panelH = headerH + lh * (visibleLineCount + 0.8);
-  drawAsciiBackground(0, 0.24 * s.backgroundTextOpacity, COLORS.brightGreen, [], [], [], false);
+
+  drawAsciiBackground(0, 0.24, COLORS.brightGreen, [], [], [], false);
   drawScanlines(0.04);
 
   ctx.save();
@@ -451,246 +455,8 @@ function drawBoot(s: GameState): void {
       renderer.drawText(ctx, line, f, lh, panelX + 18, yPos, { color });
     }
   }
-  // Buttons (Cosmetics + Settings) below the terminal panel
-  const btnH = Math.max(28, Math.round(lh * 1.2));
-  const btns = getBootButtonBounds(s);
-  const cosmeticsX = btns.cosmetics.x;
-  const settingsX = btns.settings.x;
-  const btnW = btns.cosmetics.w;
-  const btnY = btns.cosmetics.y;
-
-  // Cosmetics button
-  ctx.save();
-  ctx.fillStyle = 'rgba(8, 12, 18, 0.92)';
-  ctx.fillRect(cosmeticsX, btnY, btnW, btnH);
-  ctx.strokeStyle = 'rgba(140, 255, 159, 0.14)';
-  ctx.lineWidth = 1;
-  ctx.strokeRect(cosmeticsX + 1, btnY + 1, btnW - 2, btnH - 2);
-  ctx.restore();
-
-  // Settings button
-  ctx.save();
-  ctx.fillStyle = 'rgba(8, 12, 18, 0.92)';
-  ctx.fillRect(settingsX, btnY, btnW, btnH);
-  ctx.strokeStyle = 'rgba(140, 255, 159, 0.14)';
-  ctx.lineWidth = 1;
-  ctx.strokeRect(settingsX + 1, btnY + 1, btnW - 2, btnH - 2);
-  ctx.restore();
-
-  // Labels
-  const labelFontSize = Math.max(11, size - 2);
-  const labelFont = fnt(labelFontSize, 700);
-  const labelLH = Math.max(12, Math.min(btnH - 6, Math.round(labelFontSize * 1.35)));
-  renderer.drawText(ctx, 'Cosmetics', labelFont, labelLH, cosmeticsX + btnW / 2, btnY + btnH / 2, {
-    color: COLORS.brightGreen, align: 'center', shadowColor: COLORS.brightGreen, shadowBlur: 8, verticalAlign: 'middle',
-  });
-  renderer.drawText(ctx, 'Settings', labelFont, labelLH, settingsX + btnW / 2, btnY + btnH / 2, {
-    color: COLORS.brightGreen, align: 'center', shadowColor: COLORS.brightGreen, shadowBlur: 8, verticalAlign: 'middle',
-  });
-
   renderer.drawText(ctx, 'BLASTER HACK COMMANDLINE GAME  //  v1.0', fnt(size - 3), lh,
     cx, H - 18, { color: COLORS.dim, align: 'center', alpha: 0.4 });
-}
-
-type TravelerSprite = (typeof TRAVELER_SPRITES)[number];
-
-function getTravelerSprite(index: number): TravelerSprite {
-  const count = TRAVELER_SPRITES.length;
-  const safeIndex = ((index % count) + count) % count;
-  return TRAVELER_SPRITES[safeIndex] ?? TRAVELER_SPRITES[0]!;
-}
-
-function drawTravelerSprite(
-  sprite: TravelerSprite,
-  x: number,
-  y: number,
-  size: number,
-  options: {
-    airborne: boolean;
-    speedFrac: number;
-    headIndex?: number;
-    legIndex?: number;
-    movingVX?: number;
-    jumpVY?: number;
-    glow: string;
-    bodyColor: string;
-    wobble?: number;
-    alpha?: number;
-  },
-): void {
-  const font = fnt(size, 700);
-  const lineH = size + 2;
-  const headIndex = Math.max(0, options.headIndex ?? 0) % sprite.heads.length;
-  const legIndex = Math.max(0, options.legIndex ?? 0);
-  const movingVX = options.movingVX ?? 0;
-  const jumpVY = options.jumpVY ?? 0;
-  const airborne = options.airborne;
-  const speedFrac = options.speedFrac;
-  const glow = options.glow;
-  const bodyColor = options.bodyColor;
-  const wobble = options.wobble ?? 0;
-  const alpha = options.alpha ?? 1;
-
-  const groundLegFrames = speedFrac > 0.6 ? sprite.legsRun : speedFrac > 0.15 ? sprite.legsWalk : sprite.legsIdle;
-  const groundLegStr = groundLegFrames[legIndex % groundLegFrames.length] ?? sprite.legsIdle[0] ?? '';
-  const armsJump = jumpVY < 0 ? sprite.armsAscending : sprite.armsDescending;
-  const legsJump = jumpVY < 0 ? sprite.legsAscending : sprite.legsDescending;
-  const armsStr = movingVX < -10 ? sprite.armsLeft : movingVX > 10 ? sprite.armsRight : sprite.armsIdle;
-
-  const headStr = airborne ? sprite.jumpHead : sprite.heads[headIndex] ?? sprite.heads[0] ?? '';
-  const headBlock = renderer.getBlock(headStr, font, lineH);
-  renderer.drawBlock(ctx, headBlock, x + wobble, y, {
-    color: glow,
-    shadowColor: glow,
-    shadowBlur: airborne ? 20 : 14,
-    align: 'center',
-    alpha: alpha * 0.45,
-  });
-  renderer.drawBlock(ctx, headBlock, x + wobble, y, {
-    color: bodyColor,
-    shadowColor: glow,
-    shadowBlur: airborne ? 8 : 5,
-    align: 'center',
-    alpha,
-  });
-
-  const armsBlock = renderer.getBlock(airborne ? armsJump : armsStr, font, lineH);
-  renderer.drawBlock(ctx, armsBlock, x + wobble, y + size + 2, { color: bodyColor, align: 'center', alpha });
-
-  const legsBlock = renderer.getBlock(airborne ? legsJump : groundLegStr, font, lineH);
-  renderer.drawBlock(ctx, legsBlock, x + wobble, y + size * 2 + 2, { color: bodyColor, align: 'center', alpha });
-
-  if (!airborne && speedFrac > 0.65) {
-    const trailAlpha = ((speedFrac - 0.65) / 0.35) * 0.28 * alpha;
-    renderer.drawBlock(ctx, headBlock, x + wobble - movingVX * 0.045, y, { color: bodyColor, align: 'center', alpha: trailAlpha });
-  }
-}
-
-function drawCosmetics(s: GameState): void {
-  drawAsciiBackground(0, 0.18 * s.backgroundTextOpacity, COLORS.brightGreen, [], [], [], false);
-  drawScanlines(0.05);
-
-  const sprite = getTravelerSprite(s.travelerSpriteIndex);
-  const cx = W / 2;
-  const cy = H / 2;
-  const panelW = Math.min(760, W - 40);
-  const panelH = Math.min(520, H - 40);
-  const panelX = Math.round(cx - panelW / 2);
-  const panelY = Math.round(cy - panelH / 2);
-
-  ctx.save();
-  ctx.fillStyle = 'rgba(2, 8, 12, 0.84)';
-  ctx.fillRect(panelX, panelY, panelW, panelH);
-  ctx.strokeStyle = 'rgba(140, 255, 159, 0.36)';
-  ctx.lineWidth = 2;
-  ctx.strokeRect(panelX + 1, panelY + 1, panelW - 2, panelH - 2);
-  ctx.restore();
-
-  const titleSize = sz(W / 44, 18, 26);
-  const bodySize = sz(W / 64, 11, 16);
-  const cardSize = Math.max(10, bodySize - 1);
-  const titleFont = fnt(titleSize, 700);
-  const bodyFont = fnt(bodySize);
-  const cardFont = fnt(cardSize, 700);
-  const lh = Math.round(bodySize + 6);
-
-  renderer.drawText(ctx, 'COSMETICS FIELD', titleFont, lh, cx, panelY + 36, {
-    color: COLORS.brightGreen,
-    shadowColor: COLORS.brightGreen,
-    shadowBlur: 16,
-    align: 'center',
-  });
-  renderer.drawText(ctx, 'Choose a traveler sprite before deploying.', bodyFont, lh, cx, panelY + 72, {
-    color: COLORS.white,
-    align: 'center',
-    alpha: 0.85,
-  });
-  renderer.drawText(ctx, `LOCAL BEST: ${Math.floor(s.bestScore)}`, bodyFont, lh, cx, panelY + 96, {
-    color: COLORS.amber,
-    align: 'center',
-    alpha: 0.9,
-  });
-
-  const previewX = panelX + panelW * 0.5;
-  const previewY = panelY + panelH * 0.57;
-  drawTravelerSprite(sprite, previewX, previewY, sz(W / 34, 16, 28), {
-    airborne: false,
-    speedFrac: 0,
-    headIndex: 0,
-    legIndex: 0,
-    movingVX: 0,
-    jumpVY: 0,
-    glow: COLORS.brightGreen,
-    bodyColor: COLORS.traveler,
-    wobble: Math.sin(Date.now() / 500) * 2,
-  });
-
-  const currentLabel = `SELECTED: ${sprite.name}`;
-  renderer.drawText(ctx, currentLabel, cardFont, lh, panelX + panelW * 0.5, panelY + panelH * 0.82, {
-    color: COLORS.brightGreen,
-    align: 'center',
-    shadowColor: COLORS.brightGreen,
-    shadowBlur: 10,
-  });
-
-  const cardsTop = panelY + panelH * 0.18;
-  const cardW = Math.min(180, Math.max(140, (panelW - 80) / TRAVELER_SPRITES.length - 10));
-  const cardH = 120;
-  const cardGap = 14;
-  const totalCardsW = TRAVELER_SPRITES.length * cardW + (TRAVELER_SPRITES.length - 1) * cardGap;
-  let cardX = Math.round(panelX + panelW * 0.5 - totalCardsW / 2);
-
-  for (let i = 0; i < TRAVELER_SPRITES.length; i++) {
-    const option = TRAVELER_SPRITES[i]!;
-    const unlocked = option.unlockScore <= s.bestScore;
-    const selected = unlocked && i === s.travelerSpriteIndex;
-    const cardY = Math.round(cardsTop);
-    ctx.save();
-    ctx.fillStyle = selected ? 'rgba(108, 242, 128, 0.14)' : unlocked ? 'rgba(8, 16, 22, 0.88)' : 'rgba(8, 12, 18, 0.72)';
-    ctx.fillRect(cardX, cardY, cardW, cardH);
-    ctx.strokeStyle = selected ? 'rgba(140, 255, 159, 0.9)' : unlocked ? 'rgba(103, 115, 127, 0.55)' : 'rgba(255, 194, 74, 0.45)';
-    ctx.lineWidth = selected ? 3 : 1;
-    ctx.strokeRect(cardX + 1, cardY + 1, cardW - 2, cardH - 2);
-    ctx.restore();
-
-    renderer.drawText(ctx, option.name, cardFont, lh, cardX + cardW / 2, cardY + 22, {
-      color: selected ? COLORS.brightGreen : unlocked ? COLORS.dim : COLORS.amber,
-      align: 'center',
-      shadowColor: selected ? COLORS.brightGreen : unlocked ? COLORS.dim : COLORS.amber,
-      shadowBlur: selected ? 10 : 0,
-    });
-    drawTravelerSprite(option, cardX + cardW / 2, cardY + 56, Math.max(12, cardSize - 1), {
-      airborne: false,
-      speedFrac: 0,
-      headIndex: 0,
-      legIndex: 0,
-      movingVX: 0,
-      jumpVY: 0,
-      glow: selected ? COLORS.brightGreen : unlocked ? COLORS.dim : COLORS.amber,
-      bodyColor: selected ? COLORS.traveler : unlocked ? COLORS.dim : COLORS.amber,
-    });
-
-    if (selected) {
-      renderer.drawText(ctx, 'ACTIVE', fnt(Math.max(9, cardSize - 2), 700), lh, cardX + cardW / 2, cardY + cardH - 18, {
-        color: COLORS.brightGreen,
-        align: 'center',
-      });
-    } else if (!unlocked) {
-      renderer.drawText(ctx, `LOCKED @ ${option.unlockScore}`, fnt(Math.max(9, cardSize - 3), 700), lh, cardX + cardW / 2, cardY + cardH - 18, {
-        color: COLORS.amber,
-        align: 'center',
-      });
-    }
-
-    cardX += cardW + cardGap;
-  }
-
-  const helpText = 'ARROWS / A-D SWITCH   ENTER / SPACE DEPLOY   ESC MAIN MENU';
-  renderer.drawText(ctx, helpText, bodyFont, lh, cx, panelY + panelH - 38, {
-    color: COLORS.amber,
-    align: 'center',
-    alpha: 0.95,
-  });
 }
 
 // ─── Sky text background ──────────────────────────────────────────────────────
@@ -814,7 +580,7 @@ function drawGame(s: GameState): void {
   drawStars(s);
   drawAsciiBackground(
     s.bgStarOffset * 0.3,
-    0.15 * s.backgroundTextOpacity,
+    0.15,
     '#8bc98b',
     repulsors,
     occluders,
@@ -901,7 +667,6 @@ let PARTICLE_TYPE_WEIGHTS: Record<string, number> = {
   rain: 1.0,
   snow: 0.0,
   hail: 0.0,
-  purpleRain: 0.0,
 };
 
 const SNOW_UNLOCK_LEVEL = 3;
@@ -911,28 +676,25 @@ const HAIL_UNLOCK_LEVEL = 6;
 function updateParticleTypeWeights(level: number) {
   // Level 1: rain 100, snow 0, hail 0
   if (level <= 1) {
-    PARTICLE_TYPE_WEIGHTS = { rain: 1.0, snow: 0.0, hail: 0.0, purpleRain: 0.0 };
+    PARTICLE_TYPE_WEIGHTS = { rain: 1.0, snow: 0.0, hail: 0.0 };
     return;
   }
-  // Each level after unlock: rain -10, snow +5, hail +5, purple +4 (percentages)
+  // Each level after unlock: rain -10, snow +5, hail +5 (percentages)
   let rain = 1.0 - 0.10 * (level - 1);
   let snow = level >= SNOW_UNLOCK_LEVEL ? 0.05 * (level - 1) : 0.0;
   let hail = level >= HAIL_UNLOCK_LEVEL ? 0.05 * (level - 1) : 0.0;
-  let purpleRain = level >= 8 ? 0.04 * (level - 7) : 0.0;
   // Clamp values
   rain = Math.max(0, rain);
   snow = Math.max(0, snow);
   hail = Math.max(0, hail);
-  purpleRain = Math.max(0, purpleRain);
   // Normalize if sum > 1
-  const sum = rain + snow + hail + purpleRain;
+  const sum = rain + snow + hail;
   if (sum > 1) {
     rain /= sum;
     snow /= sum;
     hail /= sum;
-    purpleRain /= sum;
   }
-  PARTICLE_TYPE_WEIGHTS = { rain, snow, hail, purpleRain };
+  PARTICLE_TYPE_WEIGHTS = { rain, snow, hail };
 }
 
 // build an ordinal map so each type maps to a small integer (1..N) for compact storage
@@ -1200,25 +962,21 @@ function updateCloudEmitPoints(s: GameState): void {
       }
     }
 
-    if (cloud.type === 'purpleRain') {
-      cloud.visualType = 'purpleRain';
+    // determine dominant visual type for this cloud from sampled emit points
+    const counts = { rain: 0, snow: 0, hail: 0 };
+    for (const ep of emitPoints) {
+      if (ep.pType === 'rain') counts.rain++;
+      else if (ep.pType === 'snow') counts.snow++;
+      else if (ep.pType === 'hail') counts.hail++;
+    }
+    const total = counts.rain + counts.snow + counts.hail;
+    if (total > 0) {
+      let visual: ParticleType = 'rain';
+      if (counts.snow >= counts.rain && counts.snow >= counts.hail) visual = 'snow';
+      else if (counts.hail >= counts.rain && counts.hail >= counts.snow) visual = 'hail';
+      cloud.visualType = visual;
     } else {
-      // determine dominant visual type for this cloud from sampled emit points
-      const counts = { rain: 0, snow: 0, hail: 0 };
-      for (const ep of emitPoints) {
-        if (ep.pType === 'rain') counts.rain++;
-        else if (ep.pType === 'snow') counts.snow++;
-        else if (ep.pType === 'hail') counts.hail++;
-      }
-      const total = counts.rain + counts.snow + counts.hail;
-      if (total > 0) {
-        let visual: ParticleType = 'rain';
-        if (counts.snow >= counts.rain && counts.snow >= counts.hail) visual = 'snow';
-        else if (counts.hail >= counts.rain && counts.hail >= counts.snow) visual = 'hail';
-        cloud.visualType = visual;
-      } else {
-        cloud.visualType = cloud.type;
-      }
+      cloud.visualType = cloud.type;
     }
 
     if (emitPoints.length <= CLOUD_EMIT_MAX_POINTS) {
@@ -1300,18 +1058,12 @@ function drawClouds(s: GameState): void {
 
   const drawCloudRun = (text: string, runType: ParticleType | 'mixed' | undefined, x: number, y: number): void => {
     if (text.length === 0) return;
-    const color = runType === 'snow'
-      ? COLORS.cloudSnow
-      : runType === 'hail'
-        ? COLORS.cloudHail
-        : runType === 'purpleRain'
-          ? COLORS.PURPLE_RAIN
-          : COLORS.cloudRain;
+    const color = runType === 'snow' ? COLORS.cloudSnow : runType === 'hail' ? COLORS.cloudHail : COLORS.cloudRain;
     const glowColor = color;
-    const glowFactor = runType === 'snow' ? 0.95 : runType === 'hail' ? 0.7 : runType === 'purpleRain' ? 1.05 : 1.1;
+    const glowFactor = runType === 'snow' ? 0.95 : runType === 'hail' ? 0.7 : 1.1;
     const haloBlur = Math.max(10, Math.round(size * 2.1 * glowFactor));
     const innerBlur = Math.max(5, Math.round(size * 0.9 * glowFactor));
-    const haloAlpha = runType === 'hail' ? 0.34 : runType === 'snow' ? 0.42 : runType === 'purpleRain' ? 0.48 : 0.5;
+    const haloAlpha = runType === 'hail' ? 0.34 : runType === 'snow' ? 0.42 : 0.5;
     const block = renderer.getBlock(text, f, lineH);
 
     // Traveler-style glow: a soft halo first, then the crisp glyph with a tighter inner glow.
@@ -1405,6 +1157,25 @@ function drawClouds(s: GameState): void {
       }
     }
   }
+
+  for (const cloud of s.clouds) {
+    if (cloud.type !== 'purpleRain') continue;
+    const cloudBlock = renderer.getBlock(getCloudLines(cloud, s.elapsed).join('\n'), f, lineH);
+    const cloudX = cloud.x - cloudBlock.width / 2;
+    const cloudY = Math.max(startY, cloud.y);
+    renderer.drawBlock(ctx, cloudBlock, cloudX, cloudY, {
+      color: COLORS.PURPLE_RAIN,
+      shadowColor: COLORS.PURPLE_GLOW,
+      shadowBlur: 16,
+      alpha: 0.68,
+    });
+    renderer.drawBlock(ctx, cloudBlock, cloudX, cloudY, {
+      color: COLORS.PURPLE_RAIN,
+      shadowColor: COLORS.PURPLE_GLOW,
+      shadowBlur: 8,
+      alpha: 0.94,
+    });
+  }
 }
 
 // Ground
@@ -1478,36 +1249,47 @@ function drawTraveler(s: GameState): void {
   const maxSpeed = s.travelerMaxSpeed || 220;
   const speedFrac = speed / maxSpeed;
   const airborne = s.isJumping;
-  const sprite = getTravelerSprite(s.travelerSpriteIndex);
   tTimer += 0.016;
   const headInterval = speedFrac > 0.6 ? 0.10 : speedFrac > 0.2 ? 0.15 : 0.22;
-  if (tTimer > headInterval) { tTimer = 0; tFrame = (tFrame + 1) % sprite.heads.length; }
+  if (tTimer > headInterval) { tTimer = 0; tFrame = (tFrame + 1) % TRAVELER_HEADS.length; }
   if (!airborne) {
     tLegTimer += 0.016;
     const legInterval = speedFrac > 0.6 ? 0.07 : speedFrac > 0.15 ? 0.12 : 0.3;
     if (tLegTimer > legInterval) {
       tLegTimer = 0;
-      const lfc = speedFrac > 0.6 ? sprite.legsRun.length : speedFrac > 0.15 ? sprite.legsWalk.length : sprite.legsIdle.length;
+      const lfc = speedFrac > 0.6 ? TRAVELER_LEGS_RUN.length : speedFrac > 0.15 ? TRAVELER_LEGS_WALK.length : TRAVELER_LEGS_IDLE.length;
       tLegFrame = (tLegFrame + 1) % lfc;
     }
   }
+  const legFrames = speedFrac > 0.6 ? TRAVELER_LEGS_RUN : speedFrac > 0.15 ? TRAVELER_LEGS_WALK : TRAVELER_LEGS_IDLE;
+  const groundLegStr = legFrames[tLegFrame % legFrames.length];
+  const armsJump = s.travelerVY < 0 ? TRAVELER_ARMS_ASCENDING : TRAVELER_ARMS_DESCENDING;
+  const legsJump = s.travelerVY < 0 ? TRAVELER_LEGS_ASCENDING : TRAVELER_LEGS_DESCENDING;
+  const moving = s.travelerVX;
+  const armsStr = moving < -10 ? TRAVELER_ARMS_LEFT : moving > 10 ? TRAVELER_ARMS_RIGHT : TRAVELER_ARMS_IDLE;
   const size = sz(W / 40, 14, 22);
+  const f = fnt(size, 700);
+  const lh = size + 2;
   const visible = s.hitCooldown > 0 ? (Math.floor(s.hitCooldown * 9) % 2 === 0) : true;
   if (!visible) return;
   const glow = s.hitCooldown > 0 ? COLORS.brightRed : airborne ? COLORS.brightAmber : COLORS.brightGreen;
   const wobble = !airborne && speedFrac > 0.7 ? Math.sin(Date.now() / 55) * 1.5 : 0;
   const tx = s.travelerX + wobble;
-  drawTravelerSprite(sprite, tx, s.travelerY, size, {
-    airborne,
-    speedFrac,
-    headIndex: tFrame,
-    legIndex: tLegFrame,
-    movingVX: s.travelerVX,
-    jumpVY: s.travelerVY,
-    glow,
-    bodyColor: COLORS.traveler,
-    wobble,
-  });
+
+  const headStr = airborne ? TRAVELER_JUMP_HEAD : TRAVELER_HEADS[tFrame];
+  const headBlock = renderer.getBlock(headStr, f, lh);
+  // Glow halo
+  renderer.drawBlock(ctx, headBlock, tx, s.travelerY, { color: glow, shadowColor: glow, shadowBlur: airborne ? 20 : 14, align: 'center', alpha: 0.45 });
+  // Solid character
+  renderer.drawBlock(ctx, headBlock, tx, s.travelerY, { color: COLORS.traveler, shadowColor: glow, shadowBlur: airborne ? 8 : 5, align: 'center' });
+  const armsBlock = renderer.getBlock(airborne ? armsJump : armsStr, f, lh);
+  renderer.drawBlock(ctx, armsBlock, tx, s.travelerY + size + 2, { color: COLORS.traveler, align: 'center' });
+  const legsBlock = renderer.getBlock(airborne ? legsJump : groundLegStr, f, lh);
+  renderer.drawBlock(ctx, legsBlock, tx, s.travelerY + size * 2 + 2, { color: COLORS.traveler, align: 'center' });
+  if (!airborne && speedFrac > 0.65) {
+    const trailAlpha = (speedFrac - 0.65) / 0.35 * 0.28;
+    renderer.drawBlock(ctx, headBlock, tx - s.travelerVX * 0.045, s.travelerY, { color: COLORS.traveler, align: 'center', alpha: trailAlpha });
+  }
 }
 
 // Hazards
@@ -2052,8 +1834,6 @@ function drawHUD(s: GameState): void {
   const pad  = 14;
   const barH = size + 42;
   const textY = Math.round((barH - size) / 2);
-  const menuButton = getHudMenuButtonBounds(s);
-  const scoreX = pad;
 
   ctx.fillStyle = 'rgba(6,12,20,0.9)';
   ctx.fillRect(0, 0, W, barH);
@@ -2062,25 +1842,7 @@ function drawHUD(s: GameState): void {
   ctx.fillRect(0, barH, W, 1);
   ctx.globalAlpha = 1;
 
-  if (menuButton) {
-    ctx.save();
-    ctx.fillStyle = 'rgba(18, 35, 23, 0.96)';
-    ctx.strokeStyle = 'rgba(108, 242, 128, 0.65)';
-    ctx.lineWidth = 1;
-    ctx.fillRect(menuButton.x, menuButton.y, menuButton.w, menuButton.h);
-    ctx.strokeRect(menuButton.x + 0.5, menuButton.y + 0.5, menuButton.w - 1, menuButton.h - 1);
-    const menuFont = fnt(size - 1, 700);
-    const menuText = 'MAIN MENU';
-    const menuTextW = renderer.measureWidth(menuText, menuFont);
-    renderer.drawText(ctx, menuText, menuFont, size + 1, menuButton.x + Math.round((menuButton.w - menuTextW) / 2), menuButton.y + Math.round((menuButton.h - (size - 1)) / 2), {
-      color: COLORS.green,
-      shadowColor: COLORS.green,
-      shadowBlur: 6,
-    });
-    ctx.restore();
-  }
-
-  renderer.drawText(ctx, `SCORE: ${String(s.score).padStart(6, '0')}`, fb, size + 2, scoreX, textY, {
+  renderer.drawText(ctx, `SCORE: ${String(s.score).padStart(6, '0')}`, fb, size + 2, pad, textY, {
     color: COLORS.green, shadowColor: COLORS.green, shadowBlur: 8,
   });
 
@@ -2154,14 +1916,13 @@ function drawGameOver(s: GameState): void {
     ? `SURVIVED: ${Math.floor(s.elapsed)}s\nLEVEL REACHED: ${s.difficultyLevel + 1}`
     : `SURVIVED: ${Math.floor(s.elapsed)}s   LEVEL REACHED: ${s.difficultyLevel + 1}`;
   const promptText = boxW < 380
-    ? '> Press R / ENTER\n> or tap to restart\n> ESC MAIN MENU'
+    ? '> Press R / ENTER\n> or tap to restart'
     : compact
-      ? '> Press R / ENTER\n> tap to restart\n> ESC MAIN MENU'
-      : '> Press R / ENTER / tap to restart / ESC MAIN MENU';
+      ? '> Press R / ENTER\n> tap to restart'
+      : '> Press R / ENTER / tap to restart';
 
   const titleBlock = renderer.getBlock('[ PROCESS KILLED ]', fnt(titleSize, 700), lh, innerW);
   const scoreBlock = renderer.getBlock(`FINAL SCORE: ${s.score}`, fnt(bodySize, 700), lh, innerW);
-  const bestBlock = renderer.getBlock(`LOCAL BEST: ${s.bestScore}`, fnt(metaSize, 700), lh, innerW);
   const statsBlock = renderer.getBlock(statsText, fnt(metaSize), lh, innerW);
   const comboBlock = s.bestCombo > 1
     ? renderer.getBlock(`BEST COMBO: ×${s.bestCombo}`, fnt(metaSize, 700), lh, innerW)
@@ -2170,7 +1931,7 @@ function drawGameOver(s: GameState): void {
 
   const contentGap = Math.max(8, Math.round(lh * 0.35));
   const ruleGap = Math.max(10, Math.round(lh * 0.55));
-  let totalHeight = titleBlock.height + ruleGap + scoreBlock.height + contentGap + bestBlock.height + contentGap + statsBlock.height + ruleGap + promptBlock.height;
+  let totalHeight = titleBlock.height + ruleGap + scoreBlock.height + contentGap + statsBlock.height + ruleGap + promptBlock.height;
   if (comboBlock) totalHeight += contentGap + comboBlock.height;
 
   ctx.fillStyle = 'rgba(6,12,20,0.92)';
@@ -2200,9 +1961,6 @@ function drawGameOver(s: GameState): void {
     align: 'center',
   });
   y += scoreBlock.height + contentGap;
-
-  renderer.drawBlock(ctx, bestBlock, cx, y, { color: COLORS.brightGreen, align: 'center' });
-  y += bestBlock.height + contentGap;
 
   renderer.drawBlock(ctx, statsBlock, cx, y, { color: COLORS.dim, align: 'center' });
   y += statsBlock.height;
